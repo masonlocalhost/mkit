@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:18.1
+    container_name: webapp-postgres
+    environment:
+      POSTGRES_PASSWORD: password@1
+      POSTGRES_DB: example_db
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    ports:
+      - "5433:5432"
+    restart: no
+    networks:
+      - webapp-network
+
+  redis:
+    image: redis:7
+    container_name: webapp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: no
+    networks:
+      - webapp-network
+
+  # minio:
+  #   image: minio/minio:latest
+  #   container_name: webapp-minio
+  #   ports:
+  #     - "9000:9000" # API Port
+  #     - "9001:9001" # Console Port (UI)
+  #   environment:
+  #     MINIO_ACCESS_KEY: minioadmin
+  #     MINIO_SECRET_KEY: minioadmin
+  #   command: server /data --console-address ":9001"
+  #   volumes:
+  #     - minio_data:/data
+  #   networks:
+  #     - webapp-network
+
+networks:
+  webapp-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  # minio_data:
