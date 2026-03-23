@@ -1,0 +1,226 @@
+package core
+
+import (
+	"context"
+	slog "log"
+	"mkit/pkg/cache/redis"
+	"mkit/pkg/cache/redsync"
+	"mkit/pkg/log"
+	"mkit/pkg/maxmind/maxmindcli"
+	"mkit/pkg/minio"
+	"mkit/pkg/postgres"
+	"mkit/pkg/server"
+	"mkit/pkg/server/grpc"
+	"mkit/pkg/tracing"
+	"core/config"
+	blacklistrepo "core/internal/repository/blacklist"
+	collectionrepo "core/internal/repository/collection"
+	entityrepo "core/internal/repository/entity"
+	historyrepo "core/internal/repository/history"
+	issuerepo "core/internal/repository/issue"
+	queuerepo "core/internal/repository/queue"
+	resvalidationrepo "core/internal/repository/resvalidation"
+	techrepo "core/internal/repository/technology"
+	"core/internal/service/blacklist"
+	"core/internal/service/entity"
+	"core/internal/service/history"
+	"core/internal/service/issue"
+	"core/internal/service/majestic"
+	"core/internal/service/queue"
+	"core/internal/service/resvalidation"
+	"core/internal/service/spider"
+	"core/internal/service/technology"
+	"core/internal/service/transform"
+	"os"
+	"os/signal"
+	"syscall"
+)
+
+func Run() {
+	var (
+		ctx, stop = signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	)
+	defer stop()
+
+	cfg, err := config.GetCoreConfig()
+	if err != nil {
+		slog.Fatalf("cannot init config: %v", err)
+	}
+
+	appCfg := &cfg.App
+	logger, err := log.NewLogger(appCfg)
+	if err != nil {
+		slog.Fatalf("failed to init logger: %v", err)
+	}
+
+	redisClient, err := redis.NewClient(ctx, appCfg)
+	if err != nil {
+		logger.Fatalf("failed to redis: %v", err)
+	}
+
+	db, err := postgres.New(logger, appCfg)
+	if err != nil {
+		logger.Fatalf("failed to init postgresql db: %v", err)
+	}
+
+	grpcServer, healthServer, err := grpc.New(appCfg, logger)
+	if err != nil {
+		logger.Fatalf("failed to init grpc server: %v", err)
+	}
+
+	trace, err := tracing.NewService(ctx, appCfg, logger)
+	if err != nil {
+		logger.Fatalf("failed to init tracing service: %v", err)
+	}
+
+	minioService, err := minio.New(appCfg, logger)
+
+	service := server.NewServer(
+		server.AppConfig(appCfg),
+		server.Logger(logger),
+		server.GRPCServer(grpcServer),
+		server.Redis(redisClient),
+		server.Postgres(db),
+		server.Tracing(trace),
+		server.HealthServer(healthServer),
+	)
+
+	blacklistRepo := blacklistrepo.NewRepository(db)
+	queueItemRepo := queuerepo.NewRepository(db)
+	entityRepo := entityrepo.NewRepository(db)
+	collectionRepo := collectionrepo.NewRepository(db)
+	issueRepo := issuerepo.NewRepository(db)
+	issueResourceValidationRepo := resvalidationrepo.NewRepository(db)
+	historyRepo := historyrepo.NewRepository(db)
+	techRepo := techrepo.NewRepository(db)
+
+	if err != nil {
+		logger.Fatalf("cant init minio service: %v", err)
+	}
+	techService, err := technology.NewService(ctx, logger, entityRepo, collectionRepo, techRepo, minioService)
+	redsyncClient := redsync.NewClient(redisClient)
+	blacklistService := blacklist.NewService(logger, blacklistRepo)
+	spiderService, err := spider.NewClient(cfg)
+	if err != nil {
+		logger.Fatalf("cant init spider system service: %v", err)
+	}
+	if err != nil {
+		logger.Fatalf("cant init technology service: %v", err)
+	}
+	queueService, err := queue.NewService(ctx, cfg, logger, queueItemRepo, spiderService, redsyncClient)
+	if err != nil {
+		logger.Fatalf("cant init queue manager service: %v", err)
+	}
+	maxmindCli, err := maxmindcli.New()
+	entityService := entity.NewService(logger, entityRepo, issueRepo, maxmindCli, collectionRepo, blacklistRepo, redisClient)
+	if err != nil {
+		logger.Fatalf("cant init maxmind cli: %v", err)
+	}
+	transformService := transform.NewService(
+		logger, blacklistRepo, techRepo, entityRepo, queueItemRepo, collectionRepo, redisClient, techService, maxmindCli,
+	)
+	if commonDomains, err := majestic.ParseMajesticMillionCSVConcurrent(ctx, cfg.Majestic, minioService); err != nil {
+		logger.Warnf("failed to read majestic csv: %v", err)
+	} else {
+		transformService.SetBlacklistCommonDomains(commonDomains)
+	}
+	issueService := issue.NewService(logger, issueRepo, entityRepo, historyRepo)
+	if err != nil {
+		logger.Fatalf("cant init swagger ui service: %v", err)
+	}
+	issueResourceValidationService, err := resvalidation.NewService(logger, issueResourceValidationRepo, nil, issueRepo)
+	if err != nil {
+		logger.Fatalf("failed to init issue resource validation service: %v", err)
+	}
+	historyService, err := history.NewService(ctx, logger, queueItemRepo, historyRepo, entityRepo, collectionRepo, redsyncClient)
+	if err != nil {
+		logger.Fatalf("cant init history service: %v", err)
+	}
+
+	appCoreServer := &Server{
+		db:                             db,
+		logger:                         logger,
+		blackListService:               blacklistService,
+		queueService:                   queueService,
+		historyService:                 historyService,
+		entityService:                  entityService,
+		spiderService:                  spiderService,
+		transformService:               transformService,
+		redisClient:                    redisClient,
+		issueService:                   issueService,
+		maxmindCli:                     maxmindCli,
+		issueResourceValidationService: issueResourceValidationService,
+	}
+
+	service.RegisterInternalGRPCServers(appCoreServer)
+	service.Serve()
+
+	<-ctx.Done()
+	service.Close(ctx)
+}
+
+//////////////
+
+package core
+
+import (
+	"github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+	"gorm.io/gorm"
+	appcore "mkit/pkg/api/go/core"
+	"mkit/pkg/maxmind/maxmindcli"
+	"core/internal/service/blacklist"
+	"core/internal/service/entity"
+	"core/internal/service/history"
+	"core/internal/service/issue"
+	"core/internal/service/queue"
+	"core/internal/service/resvalidation"
+	"core/internal/service/transform"
+	"core/pkg/api/grpc/ssgrpc"
+)
+
+type Server struct {
+	db     *gorm.DB
+	logger *logrus.Logger
+
+	blackListService               *blacklist.Service
+	queueService                   *queue.Service
+	historyService                 *history.Service
+	entityService                  *entity.Service
+	spiderService                  ssgrpc.SpiderSystemServiceClient
+	transformService               *transform.Service
+	redisClient                    *redis.Client
+	issueService                   *issue.Service
+	maxmindCli                     maxmindcli.MaxmindCli
+	issueResourceValidationService *resvalidation.Service
+	appcore.UnimplementedAppCoreServer
+	errGroup errgroup.Group
+}
+
+func (s *Server) RegisterPBs(server *grpc.Server) {
+	appcore.RegisterAppCoreServer(server, s)
+}
+
+func (s *Server) Init() error {
+	if err := s.queueService.RecoverProcessingItems(); err != nil {
+		return err
+	}
+
+	s.errGroup.Go(s.queueService.StartProcessingLoops)
+	s.errGroup.Go(s.historyService.StartChecking)
+
+	return nil
+}
+
+func (s *Server) Name() string {
+	return "core"
+}
+
+func (s *Server) Close() error {
+	s.queueService.Stop()
+	s.historyService.Stop()
+
+	return s.errGroup.Wait()
+}

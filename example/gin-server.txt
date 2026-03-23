@@ -1,0 +1,321 @@
+package dashboard
+
+import (
+	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/errgroup"
+	"mkit/pkg/config"
+	cenum "mkit/pkg/enum"
+	ctrl "core/internal/controller"
+	"core/internal/controller/apidocs"
+	"core/internal/controller/assets"
+	"core/internal/controller/auth"
+	"core/internal/controller/collection"
+	"core/internal/controller/dishistory"
+	"core/internal/controller/entity"
+	"core/internal/controller/graph"
+	"core/internal/controller/issue"
+	"core/internal/controller/notification"
+	"core/internal/controller/profile"
+	"core/internal/controller/technology"
+	"core/internal/controller/user"
+	"core/pkg/middleware"
+)
+
+type controller interface {
+	Register(r gin.IRouter)
+}
+type Server struct {
+	dep      *ctrl.DependencyContainer
+	errGroup errgroup.Group
+}
+
+func (s *Server) RegisterRouter(router *gin.Engine) {
+	var (
+		api         = router.Group("/api/v1")
+		d           = s.dep
+		private     = api.Group("")
+		controllers = map[string]controller{
+			"/profile":           profile.NewController(d),
+			"/graph":             graph.NewController(d),
+			"/entity":            entity.NewController(d),
+			"/collection":        collection.NewController(d),
+			"/technology":        technology.NewController(d),
+			"/asset":             assets.NewController(d),
+			"/user":              user.NewController(d),
+			"/issue":             issue.NewController(d),
+			"/notify":            notification.NewController(d),
+			"/discovery-history": dishistory.NewController(d),
+		}
+	)
+
+	// public routes
+	if d.Cfg.Environment != cenum.EnvironmentProduction {
+		apidocs.NewController(d).Register(router, api)
+	}
+	auth.NewController(d).Register(api)
+
+	// private routes
+	private.Use(middleware.Auth(d.UserService.AuthenticateUser))
+	for prefix, c := range controllers {
+		c.Register(private.Group(prefix))
+	}
+}
+
+func (s *Server) Init() error {
+	go s.dep.Hub.Run()
+	go s.dep.OrgService.SyncFromCasEz()
+
+	// register cron jobs
+	if err := s.dep.CronManager.ScheduleCron(&config.Cronjob{
+		ID:   "APP:CRON:MANAGE_IRV_TASK",
+		Spec: "*/5 * * * *",
+	}, s.dep.IssueResourceValidationService.ManageProcessingTasks); err != nil {
+		return err
+	}
+
+	// run long tasksapp
+	s.errGroup.Go(s.dep.SSEService.RunManager)
+	s.errGroup.Go(s.dep.PubSub.Start)
+
+	return nil
+}
+
+func (s *Server) Name() string {
+	return "app-dashboard"
+}
+
+func (s *Server) Close() error {
+	s.dep.SSEService.Stop()
+	s.dep.CollectionService.Stop()
+	s.dep.PubSub.Stop()
+
+	if err := s.dep.MaxmindCli.Close(); err != nil {
+		return err
+	}
+
+	return s.errGroup.Wait()
+}
+
+/////////
+
+package dashboard
+
+import (
+	"context"
+	"github.com/go-gormigrate/gormigrate/v2"
+	slog "log"
+	"mkit/pkg/cache/redis"
+	"mkit/pkg/cache/redsync"
+	"mkit/pkg/cron"
+	"mkit/pkg/log"
+	"mkit/pkg/maxmind/maxmindcli"
+	"mkit/pkg/minio"
+	"mkit/pkg/postgres"
+	"mkit/pkg/rabbitmq"
+	"mkit/pkg/server"
+	gin2 "mkit/pkg/server/gin"
+	"mkit/pkg/swaggerui"
+	"mkit/pkg/tracing"
+	"core/config"
+	db2 "core/db"
+	ctrl "core/internal/controller"
+	"core/internal/event"
+	blacklistrepo "core/internal/repository/blacklist"
+	collectionrepo "core/internal/repository/collection"
+	entityrepo "core/internal/repository/entity"
+	historyrepo "core/internal/repository/history"
+	issuerepo "core/internal/repository/issue"
+	queuerepo "core/internal/repository/queue"
+	resvalidationrepo "core/internal/repository/resvalidation"
+	technologyrepo "core/internal/repository/technology"
+	"core/internal/repository/userconfig"
+	"core/internal/repository/userhistory"
+	"core/internal/repository/usertoken"
+	"core/internal/service/auth"
+	"core/internal/service/casez"
+	"core/internal/service/collection"
+	"core/internal/service/entity"
+	"core/internal/service/history"
+	"core/internal/service/hub"
+	"core/internal/service/issue"
+	"core/internal/service/org"
+	"core/internal/service/pubsub"
+	"core/internal/service/resvalidation"
+	"core/internal/service/sse"
+	"core/internal/service/technology"
+	"core/internal/service/user"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+)
+
+func Run() {
+	var (
+		ctx, stop = signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGKILL, os.Interrupt)
+	)
+	defer stop()
+
+	cfg, err := config.GetDashboardConfig()
+	if err != nil {
+		slog.Fatalf("cannot init config: %v", err)
+	}
+
+	appCfg := &cfg.App
+	logger, err := log.NewLogger(appCfg)
+	if err != nil {
+		slog.Fatalf("failed to init logger: %v", err)
+	}
+
+	redisClient, err := redis.NewClient(ctx, appCfg)
+	if err != nil {
+		logger.Fatalf("failed to init redis: %v", err)
+	}
+
+	rabbitMQ, err := rabbitmq.New(appCfg, logger)
+	if err != nil {
+		logger.Fatalf("failed to init rabbitmq: %v", err)
+	}
+
+	pubSub, err := pubsub.NewService(
+		ctx, rabbitMQ, "app-dashboard", event.PubSubExchangeName, logger, event.ProtoRegistry,
+	)
+	if err != nil {
+		logger.Fatalf("failed to init pubsub service: %v", err)
+	}
+
+	db, err := postgres.New(logger, appCfg)
+	if err != nil {
+		logger.Fatalf("failed to init postgresql db: %v", err)
+	}
+
+	m := gormigrate.New(db, gormigrate.DefaultOptions, db2.MigrationScripts)
+	if err := m.Migrate(); err != nil {
+		logger.Fatalf("migration failed: %v", err)
+	}
+
+	ginEngine, err := gin2.New(appCfg, logger)
+	if err != nil {
+		logger.Fatalf("failed to init gin engine db: %v", err)
+	}
+
+	trace, err := tracing.NewService(ctx, appCfg, logger)
+	if err != nil {
+		logger.Fatalf("failed to init tracing service: %v", err)
+	}
+
+	loc, err := time.LoadLocation(cfg.Timezone)
+	if err != nil {
+		logger.Fatalf("failed to load location: %v", err)
+	}
+
+	minioService, err := minio.New(appCfg, logger)
+	redsyncClient := redsync.NewClient(redisClient)
+
+	cronManager := cron.New(ctx, loc, logger, redsyncClient)
+
+	service := server.NewServer(
+		server.AppConfig(appCfg),
+		server.Logger(logger),
+		server.GinEngine(ginEngine),
+		server.Redis(redisClient),
+		server.Postgres(db),
+		server.Tracing(trace),
+		server.RabbitMQ(rabbitMQ),
+		server.CronManager(cronManager),
+	)
+
+	userConfigRepo := userconfig.NewRepository(db)
+	userHistoryRepo := userhistory.NewRepository(db)
+	userInvokeTokenRepo := usertoken.NewRepository(db)
+	blacklistRepo := blacklistrepo.NewRepository(db)
+	queueItemRepo := queuerepo.NewRepository(db)
+	entityRepo := entityrepo.NewRepository(db)
+	collectionRepo := collectionrepo.NewRepository(db)
+	technologyRepo := technologyrepo.NewRepository(db)
+	issueRepo := issuerepo.NewRepository(db)
+	issueResourceValidationRepo := resvalidationrepo.NewRepository(db)
+	hubService := hub.NewHub()
+	historyRepo := historyrepo.NewRepository(db)
+
+	if err != nil {
+		logger.Fatalf("cant init minio service: %v", err)
+	}
+	techService, err := technology.NewService(ctx, logger, entityRepo, collectionRepo, technologyRepo, minioService)
+	if err != nil {
+		logger.Fatalf("cant init technology service: %v", err)
+	}
+	maxmindCli, err := maxmindcli.New()
+	entityService := entity.NewService(logger, entityRepo, issueRepo, maxmindCli, collectionRepo, blacklistRepo, redisClient)
+	if err != nil {
+		logger.Fatalf("cant init maxmind cli: %v", err)
+	}
+	issueService := issue.NewService(logger, issueRepo, entityRepo, historyRepo)
+	if err != nil {
+		logger.Fatalf("cant init swagger ui service: %v", err)
+	}
+	issueResourceValidationService, err := resvalidation.NewService(logger, issueResourceValidationRepo, rabbitMQ, issueRepo)
+	if err != nil {
+		logger.Fatalf("failed to init issue resource validation service: %v", err)
+	}
+	historyService, err := history.NewService(ctx, logger, queueItemRepo, historyRepo, entityRepo, collectionRepo, redsyncClient)
+	if err != nil {
+		logger.Fatalf("cant init history service: %v", err)
+	}
+	casEzEngine, err := casez.NewClient(cfg)
+	if err != nil {
+		logger.Fatalf("cant init history service: %v", err)
+	}
+	swaggerUIService, err := swaggerui.NewService()
+	if err != nil {
+		logger.Fatalf("cant init swagger ui service: %v", err)
+	}
+	userService := user.NewService(
+		logger, userInvokeTokenRepo, userConfigRepo, userHistoryRepo, casEzEngine,
+		cfg.CasEzEngine.ServiceName, hubService, redisClient, collectionRepo,
+	)
+	authService := auth.NewService(
+		logger, userInvokeTokenRepo, userConfigRepo, userHistoryRepo, casEzEngine,
+		cfg.CasEzEngine.ServiceName, hubService,
+	)
+	orgService := org.NewService(logger, casEzEngine, cfg.CasEzEngine.ServiceName)
+	sseService := sse.NewService(logger)
+	collectionService, err := collection.NewService(
+		ctx, loc, logger, collectionRepo, blacklistRepo, redisClient, queueItemRepo, historyRepo,
+		userService, issueRepo, redsyncClient, pubSub,
+	)
+	if err != nil {
+		logger.Fatalf("cant init collection service: %v", err)
+	}
+
+	dep := &ctrl.DependencyContainer{
+		Cfg:                            cfg,
+		Logger:                         logger,
+		UserService:                    userService,
+		OrgService:                     orgService,
+		DiscoveryHistoryService:        historyService,
+		EntityService:                  entityService,
+		AuthService:                    authService,
+		Hub:                            hubService,
+		DB:                             db,
+		CollectionService:              collectionService,
+		MaxmindCli:                     maxmindCli,
+		RedisClient:                    redisClient,
+		TechnologyService:              techService,
+		Minio:                          minioService,
+		IssueService:                   issueService,
+		SwaggerUIService:               swaggerUIService,
+		IssueResourceValidationService: issueResourceValidationService,
+		SSEService:                     sseService,
+		PubSub:                         pubSub,
+		CronManager:                    cronManager,
+	}
+
+	appDashboardServer := &Server{dep: dep}
+
+	service.RegisterInternalGinServer(appDashboardServer)
+	service.Serve()
+
+	<-ctx.Done()
+	service.Close(ctx)
+}
