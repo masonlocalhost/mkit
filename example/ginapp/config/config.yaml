@@ -1,0 +1,53 @@
+environment: dev #dev/prod
+version: 0.0.1
+timezone: Asia/Bangkok
+
+http:
+  host: 0.0.0.0
+  port: 8080
+
+log:
+  level: info
+  logFilePath: ./.tmp/logs
+
+postgres:
+  connectionParams:
+    host: localhost
+    port: 5433
+    user: postgres
+    password: password@1
+    dbName: example_db
+    sslMode: disable
+  isMigrateSchema: false
+  maxOpenConn: 20
+  maxIdleConn: 20
+
+# redis:
+#   host: localhost
+#   port: 6379
+#   # password: pass
+#   db: 0
+
+# customConfig:
+#   name: test
+#   topic: example
+
+# tracing:
+#   enabled: false
+#   serviceName: "nitro-dashboard"
+#   collectorHost: host
+#   collectorPort: 4317
+
+# minio:
+#   host: host
+#   port: 9000
+#   accessKey: minioadmin
+#   secretKey: minioadmin
+#   bucketName: nitro-test
+#   sslEnabled: false
+
+# rabbitMQ:
+#   host: host
+#   port: 5672
+#   user: rabbitmq
+#   password: rabbitmq
