@@ -1,0 +1,8 @@
+sql:
+  dialect: psql
+  driver: github.com/jackc/pgx/v5/stdlib
+  uuid_pkg: google
+  pattern: "*.sql"
+  # queries:
+  #   - ./queries
+type_system: database/sql
