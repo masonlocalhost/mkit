@@ -6,10 +6,12 @@ require (
 	buf.build/go/protovalidate v1.1.3
 	connectrpc.com/vanguard v0.4.0
 	github.com/avast/retry-go/v4 v4.7.0
+	github.com/envoyproxy/protoc-gen-validate v1.3.0
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-playground/validator/v10 v10.30.1
 	github.com/go-redsync/redsync/v4 v4.16.0
+	github.com/golang/protobuf v1.5.4
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible

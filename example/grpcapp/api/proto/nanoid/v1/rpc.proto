@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package nanoid.v1;
+
+import "google/protobuf/timestamp.proto";
+import "nanoid/v1/model.proto";
+import "validate/validate.proto";
+
+option go_package = "mkit/example/grpcapp/pkg/api/go/nanoid/v1;nanoid";
+
+message GetTechnologyRequest {
+  string id = 1 [(validate.rules).string.uuid = true];
+}
+
+message GetTechnologyResponse {
+  Technology technology = 1;
+}
+
+message ListTechnologiesRequest {
+  repeated string cpe_types = 1 [(validate.rules).repeated = {
+    unique: true
+    items: {
+      string: {min_len: 1}
+    }
+  }];
+
+  repeated string vendors = 2 [(validate.rules).repeated = {
+    unique: true
+    items: {
+      string: {min_len: 1}
+    }
+  }];
+
+  string search = 3;
+
+  repeated string collection_ids = 4 [(validate.rules).repeated = {
+    items: {
+      string: {uuid: true}
+    }
+  }];
+
+  google.protobuf.Timestamp created_from = 5;
+  google.protobuf.Timestamp created_to = 6;
+
+  int32 limit = 7 [(validate.rules).int32 = {
+    gte: 1
+    lte: 100
+  }];
+  int32 offset = 8 [(validate.rules).int32.gte = 0];
+
+  string sort_by = 9;
+  string sort_order = 10 [(validate.rules).string = {
+    in: [
+      "asc",
+      "desc"
+    ]
+  }];
+}
+
+message ListTechnologiesResponse {
+  repeated Technology technologies = 1;
+  int64 total = 2;
+  int32 offset = 3;
+  int32 limit = 4;
+}
+
+message ListTechnologyVendorsRequest {
+  repeated string collection_ids = 1 [(validate.rules).repeated = {
+    items: {
+      string: {uuid: true}
+    }
+  }];
+}
+
+message ListTechnologyVendorsResponse {
+  repeated string vendors = 1;
+}
+
+message ListTechnologyCPETypesRequest {
+  repeated string collection_ids = 1 [(validate.rules).repeated = {
+    items: {
+      string: {uuid: true}
+    }
+  }];
+}
+
+message ListTechnologyCPETypesResponse {
+  repeated string cpe_types = 1;
+}

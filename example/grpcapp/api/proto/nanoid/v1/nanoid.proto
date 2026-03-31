@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package nanoid.v1;
+
+import "nanoid/v1/rpc.proto";
+
+option go_package = "mkit/example/grpcapp/pkg/api/go/nanoid/v1;nanoid";
+
+service NanoidService {
+  rpc GetTechnology(GetTechnologyRequest) returns (GetTechnologyResponse);
+  rpc ListTechnologies(ListTechnologiesRequest) returns (ListTechnologiesResponse);
+  rpc ListTechnologyVendors(ListTechnologyVendorsRequest) returns (ListTechnologyVendorsResponse);
+  rpc ListTechnologyCPETypes(ListTechnologyCPETypesRequest) returns (ListTechnologyCPETypesResponse);
+}
