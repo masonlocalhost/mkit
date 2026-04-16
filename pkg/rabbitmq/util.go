@@ -2,8 +2,9 @@ package rabbitmq
 
 import (
 	"fmt"
+	"log/slog"
+
 	"github.com/rabbitmq/amqp091-go"
-	"github.com/sirupsen/logrus"
 	rmq "github.com/wagslane/go-rabbitmq"
 )
 
@@ -24,7 +25,7 @@ func createChannel(c *rmq.Conn) (*amqp091.Channel, error) {
 }
 func closeChannel(ch *amqp091.Channel) {
 	if err := ch.Close(); err != nil {
-		logrus.Warn("error closing channel")
+		slog.Warn("error closing channel", "error", err)
 	}
 }
 

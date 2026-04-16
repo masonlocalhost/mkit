@@ -2,13 +2,13 @@ package grpc
 
 import (
 	"fmt"
+	"log/slog"
 	"mkit/pkg/config"
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/vanguard"
 	"connectrpc.com/vanguard/vanguardgrpc"
 	pvinterceptor "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
-	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
@@ -19,7 +19,7 @@ import (
 )
 
 func New(
-	cfg *config.App, logger *logrus.Logger,
+	cfg *config.App, logger *slog.Logger,
 ) (*grpc.Server, *health.Server, error) {
 	validator, err := protovalidate.New()
 	if err != nil {

@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
-	slog "log"
+	stdlog "log"
+	"os"
+
 	"mkit/example/grpcapp/config"
 	techrepo "mkit/example/grpcapp/internal/repository/technology"
 	"mkit/example/grpcapp/internal/service/technology"
@@ -12,7 +14,7 @@ import (
 	"mkit/pkg/server"
 	"mkit/pkg/server/grpc"
 	"mkit/pkg/tracing"
-	"os"
+
 	"os/signal"
 	"syscall"
 )
@@ -25,28 +27,32 @@ func Run() {
 
 	cfg, err := config.GetConfig()
 	if err != nil {
-		slog.Fatalf("cannot init config: %v", err)
+		stdlog.Fatalf("cannot init config: %v", err)
 	}
 
 	appCfg := &cfg.App
-	logger, err := log.NewLogger(appCfg)
+
+	// Init tracing first so the log provider is available for the logger.
+	trace, err := tracing.NewService(ctx, appCfg)
 	if err != nil {
-		slog.Fatalf("failed to init logger: %v", err)
+		stdlog.Fatalf("failed to init tracing service: %v", err)
+	}
+
+	logger, err := log.NewLogger(appCfg, trace.LogProvider())
+	if err != nil {
+		stdlog.Fatalf("failed to init logger: %v", err)
 	}
 
 	db, err := postgres.New(logger, appCfg)
 	if err != nil {
-		logger.Fatalf("failed to init postgresql db: %v", err)
+		logger.Error("failed to init postgresql db", "error", err)
+		os.Exit(1)
 	}
 
 	grpcServer, healthServer, err := grpc.New(appCfg, logger)
 	if err != nil {
-		logger.Fatalf("failed to init grpc server: %v", err)
-	}
-
-	trace, err := tracing.NewService(ctx, appCfg, logger)
-	if err != nil {
-		logger.Fatalf("failed to init tracing service: %v", err)
+		logger.Error("failed to init grpc server", "error", err)
+		os.Exit(1)
 	}
 
 	service := server.NewServer(

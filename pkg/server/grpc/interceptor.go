@@ -3,12 +3,12 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"mkit/pkg/log"
 	"runtime/debug"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// UnaryPanicInterceptor recovers from panics in unary RPCs
-func UnaryPanicInterceptor(logger *logrus.Logger) grpc.UnaryServerInterceptor {
+// UnaryPanicInterceptor recovers from panics in unary RPCs.
+func UnaryPanicInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
 		req interface{},
@@ -28,10 +28,10 @@ func UnaryPanicInterceptor(logger *logrus.Logger) grpc.UnaryServerInterceptor {
 			if r := recover(); r != nil {
 				stack := string(debug.Stack())
 
-				logger.WithContext(ctx).WithFields(logrus.Fields{
-					"stack":  stack,
-					"method": info.FullMethod,
-				}).Error(fmt.Sprintf("panic recovered in Gin handler: %v", r))
+				logger.ErrorContext(ctx, fmt.Sprintf("panic recovered in gRPC handler: %v", r),
+					"stack", stack,
+					"method", info.FullMethod,
+				)
 
 				err = status.Errorf(codes.Internal, "internal error")
 			}
@@ -40,7 +40,8 @@ func UnaryPanicInterceptor(logger *logrus.Logger) grpc.UnaryServerInterceptor {
 		return handler(ctx, req)
 	}
 }
-func UnaryLogger(logger *logrus.Logger) grpc.UnaryServerInterceptor {
+
+func UnaryLogger(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
 		req interface{},
@@ -50,7 +51,6 @@ func UnaryLogger(logger *logrus.Logger) grpc.UnaryServerInterceptor {
 
 		start := time.Now()
 
-		// Request ID (from metadata if present)
 		var reqID string
 		if md, ok := metadata.FromIncomingContext(ctx); ok {
 			if v := md.Get("x-request-id"); len(v) > 0 {
@@ -62,30 +62,23 @@ func UnaryLogger(logger *logrus.Logger) grpc.UnaryServerInterceptor {
 			reqID = id.String()
 		}
 
-		// Client IP
 		var ip string
 		if p, ok := peer.FromContext(ctx); ok {
 			ip = p.Addr.String()
 		}
 
-		entry := logrus.NewEntry(logger).WithFields(logrus.Fields{
-			"request_id": reqID,
-		})
+		entry := logger.With("request_id", reqID)
 		ctx = log.WithLogger(ctx, entry)
 
-		// Call handler with enriched context
 		resp, err := handler(ctx, req)
 
-		// Status + duration
-		duration := time.Since(start)
 		st := status.Convert(err)
-
-		entry.WithFields(logrus.Fields{
-			"status":   st.Code().String(),
-			"duration": duration,
-			"method":   info.FullMethod,
-			"ip":       ip,
-		}).Info("Incoming gRPC request")
+		entry.InfoContext(ctx, "Incoming gRPC request",
+			"status", st.Code().String(),
+			"duration", time.Since(start),
+			"method", info.FullMethod,
+			"ip", ip,
+		)
 
 		return resp, err
 	}

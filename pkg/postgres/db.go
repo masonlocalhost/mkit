@@ -2,11 +2,11 @@ package postgres
 
 import (
 	"fmt"
+	"log/slog"
 	"mkit/pkg/config"
 	"mkit/pkg/enum"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -17,7 +17,7 @@ type DB struct {
 	db *gorm.DB
 }
 
-func New(logrusLogger *logrus.Logger, cfg *config.App) (*gorm.DB, error) {
+func New(slogLogger *slog.Logger, cfg *config.App) (*gorm.DB, error) {
 	var (
 		dbCfg  = cfg.Postgres
 		params = dbCfg.ConnectionParams
@@ -33,9 +33,9 @@ func New(logrusLogger *logrus.Logger, cfg *config.App) (*gorm.DB, error) {
 	}
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: &GormLogrusLogger{
+		Logger: &GormSlogLogger{
 			LogLevel: logLevel,
-			Logger:   logrusLogger,
+			Logger:   slogLogger,
 		},
 	})
 	if err != nil {
@@ -48,13 +48,11 @@ func New(logrusLogger *logrus.Logger, cfg *config.App) (*gorm.DB, error) {
 		}
 	}
 
-	// Set connection pool settings
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database connection: %w", err)
 	}
 
-	// Set connection pool limits
 	sqlDB.SetMaxIdleConns(dbCfg.MaxIdleConn)
 	sqlDB.SetMaxOpenConns(dbCfg.MaxOpenConn)
 	sqlDB.SetConnMaxLifetime(time.Hour)
@@ -72,7 +70,6 @@ func (d *DB) MigrateTables(models ...any) error {
 		return fmt.Errorf("cant migrate tables: %w", err)
 	}
 
-	// additional custom migrate
 	for _, m := range models {
 		if migrator, ok := m.(CustomMigrator); ok {
 			if err := migrator.CustomMigrate(d.db); err != nil {

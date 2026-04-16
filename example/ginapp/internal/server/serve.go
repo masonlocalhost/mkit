@@ -2,7 +2,8 @@ package server
 
 import (
 	"context"
-	slog "log"
+	stdlog "log"
+	"os"
 
 	"mkit/example/ginapp/config"
 	ctrl "mkit/example/ginapp/internal/controller"
@@ -22,7 +23,6 @@ import (
 	"mkit/pkg/server"
 	"mkit/pkg/tracing"
 
-	"os"
 	"os/signal"
 	"syscall"
 )
@@ -35,55 +35,59 @@ func Run() {
 
 	cfg, err := config.GetConfig()
 	if err != nil {
-		slog.Fatalf("cannot init config: %v", err)
+		stdlog.Fatalf("cannot init config: %v", err)
 	}
 
 	appCfg := &cfg.App
-	logger, err := log.NewLogger(appCfg)
+
+	// Init tracing first so the log provider is available for the logger.
+	trace, err := tracing.NewService(ctx, appCfg)
 	if err != nil {
-		slog.Fatalf("failed to init logger: %v", err)
+		stdlog.Fatalf("failed to init tracing service: %v", err)
+	}
+
+	logger, err := log.NewLogger(appCfg, trace.LogProvider())
+	if err != nil {
+		stdlog.Fatalf("failed to init logger: %v", err)
 	}
 
 	// migrate database
 	// if err := postgres.MigrateDatabase(appCfg, logger); err != nil {
-	// 	logger.Fatalf("failed to migrate database: %v", err)
+	// 	logger.Error("failed to migrate database", "error", err); os.Exit(1)
 	// }
 
 	// redisClient, err := redis.NewClient(ctx, appCfg)
 	// if err != nil {
-	// 	logger.Fatalf("failed to init redis: %v", err)
+	// 	logger.Error("failed to init redis", "error", err); os.Exit(1)
 	// }
 
 	// rabbitMQ, err := rabbitmq.New(appCfg, logger)
 	// if err != nil {
-	// 	logger.Fatalf("failed to init rabbitmq: %v", err)
+	// 	logger.Error("failed to init rabbitmq", "error", err); os.Exit(1)
 	// }
 
 	// pubSub, err := pubsub.NewService(
 	// 	ctx, rabbitMQ, "nitro-dashboard", event.PubSubExchangeName, logger, event.ProtoRegistry,
 	// )
 	// if err != nil {
-	// 	logger.Fatalf("failed to init pubsub service: %v", err)
+	// 	logger.Error("failed to init pubsub service", "error", err); os.Exit(1)
 	// }
 
 	db, err := postgres.New(logger, appCfg)
 	if err != nil {
-		logger.Fatalf("failed to init postgresql db: %v", err)
+		logger.Error("failed to init postgresql db", "error", err)
+		os.Exit(1)
 	}
 
 	ginEngine, err := gin2.New(appCfg, logger)
 	if err != nil {
-		logger.Fatalf("failed to init gin engine db: %v", err)
-	}
-
-	trace, err := tracing.NewService(ctx, appCfg, logger)
-	if err != nil {
-		logger.Fatalf("failed to init tracing service: %v", err)
+		logger.Error("failed to init gin engine", "error", err)
+		os.Exit(1)
 	}
 
 	// loc, err := time.LoadLocation(cfg.Timezone)
 	// if err != nil {
-	// 	logger.Fatalf("failed to load location: %v", err)
+	// 	logger.Error("failed to load location", "error", err); os.Exit(1)
 	// }
 
 	// minioService, err := minio.New(appCfg, logger)
@@ -102,85 +106,14 @@ func Run() {
 		// server.CronManager(cronManager),
 	)
 
-	// userConfigRepo := userconfig.NewRepository(db)
-	// userHistoryRepo := userhistory.NewRepository(db)
-	// userInvokeTokenRepo := usertoken.NewRepository(db)
-	// blacklistRepo := blacklistrepo.NewRepository(db)
-	// queueItemRepo := queuerepo.NewRepository(db)
-	// entityRepo := entityrepo.NewRepository(db)
-	// collectionRepo := collectionrepo.NewRepository(db)
 	technologyRepo := techrepo.NewRepository(db)
-	// issueRepo := issuerepo.NewRepository(db)
-	// issueResourceValidationRepo := resvalidationrepo.NewRepository(db)
-	// hubService := hub.NewHub()
-	// historyRepo := historyrepo.NewRepository(db)
-
 	techService := technology.NewService(logger, technologyRepo)
 
-	// maxmindCli, err := maxmindcli.New()
-	// entityService := entity.NewService(logger, entityRepo, issueRepo, maxmindCli, collectionRepo, blacklistRepo, redisClient)
-	// if err != nil {
-	// 	logger.Fatalf("cant init maxmind cli: %v", err)
-	// }
-	// issueService := issue.NewService(logger, issueRepo, entityRepo, historyRepo)
-	// if err != nil {
-	// 	logger.Fatalf("cant init swagger ui service: %v", err)
-	// }
-	// issueResourceValidationService, err := resvalidation.NewService(logger, issueResourceValidationRepo, rabbitMQ, issueRepo)
-	// if err != nil {
-	// 	logger.Fatalf("failed to init issue resource validation service: %v", err)
-	// }
-	// historyService, err := history.NewService(ctx, logger, queueItemRepo, historyRepo, entityRepo, collectionRepo, redsyncClient)
-	// if err != nil {
-	// 	logger.Fatalf("cant init history service: %v", err)
-	// }
-	// casEzEngine, err := casez.NewClient(cfg)
-	// if err != nil {
-	// 	logger.Fatalf("cant init history service: %v", err)
-	// }
-	// swaggerUIService, err := swaggerui.NewService()
-	// if err != nil {
-	// 	logger.Fatalf("cant init swagger ui service: %v", err)
-	// }
-	// userService := user.NewService(
-	// 	logger, userInvokeTokenRepo, userConfigRepo, userHistoryRepo, casEzEngine,
-	// 	cfg.CasEzEngine.ServiceName, hubService, redisClient, collectionRepo,
-	// )
-	// authService := auth.NewService(
-	// 	logger, userInvokeTokenRepo, userConfigRepo, userHistoryRepo, casEzEngine,
-	// 	cfg.CasEzEngine.ServiceName, hubService,
-	// )
-	// orgService := org.NewService(logger, casEzEngine, cfg.CasEzEngine.ServiceName)
-	// sseService := sse.NewService(logger)
-	// collectionService, err := collection.NewService(
-	// 	ctx, loc, logger, collectionRepo, blacklistRepo, redisClient, queueItemRepo, historyRepo,
-	// 	userService, issueRepo, redsyncClient, pubSub,
-	// )
-	// if err != nil {
-	// 	logger.Fatalf("cant init collection service: %v", err)
-	// }
-
 	dep := &ctrl.DependencyContainer{
-		Cfg:    cfg,
-		Logger: logger,
-		// UserService:                    userService,
-		// OrgService:                     orgService,
-		// DiscoveryHistoryService:        historyService,
-		// EntityService:                  entityService,
-		// AuthService:                    authService,
-		// Hub:                            hubService,
-		DB: db,
-		// CollectionService:              collectionService,
-		// MaxmindCli:                     maxmindCli,
-		// RedisClient:                    redisClient,
+		Cfg:               cfg,
+		Logger:            logger,
+		DB:                db,
 		TechnologyService: techService,
-		// Minio:                          minioService,
-		// IssueService:                   issueService,
-		// SwaggerUIService:               swaggerUIService,
-		// IssueResourceValidationService: issueResourceValidationService,
-		// SSEService:                     sseService,
-		// PubSub:                         pubSub,
-		// CronManager:                    cronManager,
 	}
 
 	ginServer := &Server{dep: dep}

@@ -1,18 +1,18 @@
 package server
 
 import (
+	"log/slog"
 	"mkit/example/grpcapp/config"
 	"mkit/example/grpcapp/internal/service/technology"
 	"mkit/example/grpcapp/pkg/api/go/nanoid/v1"
 
-	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
 )
 
 type Server struct {
 	db                *gorm.DB
-	logger            *logrus.Logger
+	logger            *slog.Logger
 	cfg               *config.Config
 	technologyService *technology.Service
 

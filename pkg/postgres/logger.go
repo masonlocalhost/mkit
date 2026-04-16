@@ -3,58 +3,65 @@ package postgres
 import (
 	"context"
 	"errors"
-	"gorm.io/gorm"
+	"fmt"
+	"log/slog"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-type GormLogrusLogger struct {
+type GormSlogLogger struct {
 	LogLevel logger.LogLevel
-	Logger   *logrus.Logger
+	Logger   *slog.Logger
 }
 
-func (l *GormLogrusLogger) LogMode(level logger.LogLevel) logger.Interface {
+func (l *GormSlogLogger) LogMode(level logger.LogLevel) logger.Interface {
 	l.LogLevel = level
-
 	return l
 }
 
-func (l *GormLogrusLogger) Info(ctx context.Context, msg string, data ...interface{}) {
+func (l *GormSlogLogger) Info(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Info {
-		l.Logger.WithContext(ctx).Infof(msg, data...)
+		l.Logger.InfoContext(ctx, fmt.Sprintf(msg, data...))
 	}
 }
 
-func (l *GormLogrusLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
+func (l *GormSlogLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Warn {
-		l.Logger.WithContext(ctx).Warnf(msg, data...)
+		l.Logger.WarnContext(ctx, fmt.Sprintf(msg, data...))
 	}
 }
 
-func (l *GormLogrusLogger) Error(ctx context.Context, msg string, data ...interface{}) {
+func (l *GormSlogLogger) Error(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Error {
-		l.Logger.WithContext(ctx).Errorf(msg, data...)
+		l.Logger.ErrorContext(ctx, fmt.Sprintf(msg, data...))
 	}
 }
 
-func (l *GormLogrusLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+func (l *GormSlogLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	if l.LogLevel < logger.Info {
+		return
+	}
+
 	elapsed := time.Since(begin)
 	sql, rows := fc()
-	entry := l.Logger.WithContext(ctx).WithFields(logrus.Fields{
-		"duration": elapsed,
-		"rows":     rows,
-		"sql":      sql,
-	})
 
-	if l.LogLevel >= logger.Info {
-		if err != nil {
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
-				entry.WithField("error", err).Info("gorm error")
-			}
-		} else {
-			entry.Info("gorm query")
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			l.Logger.ErrorContext(ctx, "gorm error",
+				"duration", elapsed,
+				"rows", rows,
+				"sql", sql,
+				"error", err,
+			)
 		}
+		return
 	}
+
+	l.Logger.InfoContext(ctx, "gorm query",
+		"duration", elapsed,
+		"rows", rows,
+		"sql", sql,
+	)
 }

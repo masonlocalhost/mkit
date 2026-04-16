@@ -1,16 +1,16 @@
 package controller
 
 import (
+	"log/slog"
 	"mkit/example/ginapp/config"
 	"mkit/example/ginapp/internal/service/technology"
 
-	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 type DependencyContainer struct {
 	Cfg               *config.Config
-	Logger            *logrus.Logger
+	Logger            *slog.Logger
 	DB                *gorm.DB
 	TechnologyService *technology.Service
 }

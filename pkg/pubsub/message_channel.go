@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	rabbitmq2 "mkit/pkg/rabbitmq"
+	"log/slog"
 	"time"
 
 	"buf.build/go/protovalidate"
-	"github.com/sirupsen/logrus"
 	"github.com/wagslane/go-rabbitmq"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -27,7 +27,7 @@ type MessageChannel struct {
 	broadcastAllConsumer *rabbitmq.Consumer
 	broadcastHandlers    []handler
 	broadcastAllHandlers []handler
-	logger               *logrus.Logger
+	logger               *slog.Logger
 	ctx                  context.Context
 	topic                string
 	unmarshalPayload     proto.Message
@@ -36,7 +36,7 @@ type MessageChannel struct {
 }
 
 func NewMsgChannel(
-	logger *logrus.Logger, serviceName, exchangeName, topic string, unmarshalPayload proto.Message,
+	logger *slog.Logger, serviceName, exchangeName, topic string, unmarshalPayload proto.Message,
 ) (*MessageChannel, error) {
 	validator, err := protovalidate.New()
 	if err != nil {
@@ -65,7 +65,7 @@ func (m *MessageChannel) AddHandler(handler handler, transmissionType Transmissi
 
 func (m *MessageChannel) StartConsuming(rctx context.Context, conn *rabbitmq.Conn) error {
 	errGroup, _ := errgroup.WithContext(rctx)
-	// start all instance consumer
+
 	if len(m.broadcastAllHandlers) > 0 {
 		baConsumer, err := rabbitmq.NewConsumer(conn, "",
 			rabbitmq.WithConsumerOptionsExchangeName(m.exchangeName),
@@ -74,7 +74,7 @@ func (m *MessageChannel) StartConsuming(rctx context.Context, conn *rabbitmq.Con
 			rabbitmq.WithConsumerOptionsExchangeKind("topic"),
 			rabbitmq.WithConsumerOptionsQueueExclusive,
 			rabbitmq.WithConsumerOptionsQueueAutoDelete,
-			rabbitmq.WithConsumerOptionsLogger(rabbitmq2.NewLogger(m.logger, logrus.ErrorLevel)),
+			rabbitmq.WithConsumerOptionsLogger(rabbitmq2.NewLogger(m.logger, slog.LevelError)),
 		)
 		if err != nil {
 			return fmt.Errorf("cant start all instances consumer: %w", err)
@@ -89,16 +89,15 @@ func (m *MessageChannel) StartConsuming(rctx context.Context, conn *rabbitmq.Con
 		m.broadcastAllConsumer = baConsumer
 	}
 
-	// start one instance consumer
 	if len(m.broadcastHandlers) > 0 {
 		bConsumer, err := rabbitmq.NewConsumer(conn, fmt.Sprintf("%s.%s.%s-queue", m.exchangeName, m.topic, m.serviceName),
 			rabbitmq.WithConsumerOptionsExchangeName(m.exchangeName),
-			rabbitmq.WithConsumerOptionsRoutingKey(fmt.Sprintf("%s.%s.*", m.exchangeName, m.topic)), // subscribe to all transmission types
+			rabbitmq.WithConsumerOptionsRoutingKey(fmt.Sprintf("%s.%s.*", m.exchangeName, m.topic)),
 			rabbitmq.WithConsumerOptionsExchangeDeclare,
 			rabbitmq.WithConsumerOptionsExchangeKind("topic"),
 			rabbitmq.WithConsumerOptionsQueueArgs(
 				map[string]any{
-					"x-expires": (24 * time.Hour).Milliseconds(), // auto remove in 24 hour if no connection
+					"x-expires": (24 * time.Hour).Milliseconds(),
 				},
 			),
 		)
@@ -131,11 +130,17 @@ func (m *MessageChannel) ProcessMsg(d rabbitmq.Delivery, handlers []handler) rab
 	payload := proto.Clone(m.unmarshalPayload)
 
 	if err := protojson.Unmarshal(d.Body, payload); err != nil {
-		m.logger.Errorf("Failed to unmarshal proto message for topic '%s' (maybe wrong message payload is published): %v", m.topic, err)
+		m.logger.Error("Failed to unmarshal proto message",
+			"topic", m.topic,
+			"error", err,
+		)
 	}
 
 	if err := m.validator.Validate(payload); err != nil {
-		m.logger.Warnf("Pubsub proto message validation error for topic '%v', ingored: %v", m.topic, err)
+		m.logger.Warn("Pubsub proto message validation error",
+			"topic", m.topic,
+			"error", err,
+		)
 	}
 
 	for _, h := range handlers {

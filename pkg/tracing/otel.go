@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"mkit/pkg/config"
 
-	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/contrib/bridges/otellogrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
@@ -26,9 +24,10 @@ type Service struct {
 	logExporter    *otlploggrpc.Exporter
 	metricExporter *otlpmetricgrpc.Exporter
 	resources      *resource.Resource
+	logProvider    *otellog.LoggerProvider
 }
 
-func NewService(ctx context.Context, appCfg *config.App, logger *logrus.Logger) (*Service, error) {
+func NewService(ctx context.Context, appCfg *config.App) (*Service, error) {
 	var (
 		s   = &Service{}
 		cfg = appCfg.Tracing
@@ -72,11 +71,21 @@ func NewService(ctx context.Context, appCfg *config.App, logger *logrus.Logger) 
 		return nil, fmt.Errorf("cant init log collector: %w", err)
 	}
 
-	if err := s.registerLogrusHook(logger); err != nil {
-		return nil, err
-	}
+	s.logProvider = otellog.NewLoggerProvider(
+		otellog.WithResource(s.resources),
+		otellog.WithProcessor(
+			otellog.NewBatchProcessor(s.logExporter),
+		),
+	)
 
 	return s, nil
+}
+
+// LogProvider returns the OTel LoggerProvider so that pkg/log can attach an
+// slog handler that ships records to the collector as raw JSON.
+// Returns nil when tracing is disabled.
+func (s *Service) LogProvider() *otellog.LoggerProvider {
+	return s.logProvider
 }
 
 func (s *Service) Stop(ctx context.Context) error {
@@ -85,12 +94,11 @@ func (s *Service) Stop(ctx context.Context) error {
 			return err
 		}
 	}
-	if s.logExporter != nil {
-		if err := s.logExporter.Shutdown(ctx); err != nil {
+	if s.logProvider != nil {
+		if err := s.logProvider.Shutdown(ctx); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -142,28 +150,6 @@ func initLogCollector(
 	}
 
 	return logExporter, nil
-}
-
-func (s *Service) registerLogrusHook(logger *logrus.Logger) error {
-	if s.logExporter == nil {
-		return fmt.Errorf("log exporter not found")
-	}
-
-	logProvider := otellog.NewLoggerProvider(
-		otellog.WithResource(s.resources),
-		otellog.WithProcessor(
-			otellog.NewBatchProcessor(s.logExporter),
-		),
-	)
-
-	hook := otellogrus.NewHook(
-		"open-telemetry-log-hook",
-		otellogrus.WithLoggerProvider(logProvider),
-	)
-
-	logger.AddHook(hook)
-
-	return nil
 }
 
 func initMetrics(ctx context.Context, collectorURL string, resources *resource.Resource, isSecure bool) (*otlpmetricgrpc.Exporter, error) {

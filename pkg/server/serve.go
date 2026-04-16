@@ -3,8 +3,10 @@ package server
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
+	"os"
 )
 
 func (s *Server) Serve() {
@@ -24,14 +26,16 @@ func (s *Server) init() {
 	if len(s.internalGRPCServers) > 0 {
 		for _, is := range s.internalGRPCServers {
 			if err := is.Init(); err != nil {
-				logger.Fatalf("Error when init grpc service %s: %v", is.Name(), err)
+				logger.Error("Error when init grpc service", "name", is.Name(), "error", err)
+				os.Exit(1)
 			}
 		}
 	}
 
 	if s.internalGINServer != nil {
 		if err := s.internalGINServer.Init(); err != nil {
-			logger.Fatalf("Error when init gin service %s: %v", s.internalGINServer.Name(), err)
+			logger.Error("Error when init gin service", "name", s.internalGINServer.Name(), "error", err)
+			os.Exit(1)
 		}
 	}
 }
@@ -44,25 +48,29 @@ func (s *Server) serveGRPC() {
 	)
 
 	if len(s.internalGRPCServers) == 0 {
-		logger.Fatalf("Servers must be registered to be able to serve (use RegisterInternalGRPCServers())")
+		logger.Error("Servers must be registered to be able to serve (use RegisterInternalGRPCServers())")
+		os.Exit(1)
 	}
 
 	grpcAddr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
 
 	lis, err := net.Listen("tcp", grpcAddr)
 	if lis == nil {
-		logger.Fatal(fmt.Sprintf("Failed to listen to %s (it seems like the port is occupied)", grpcAddr))
+		logger.Error("Failed to listen — port may be occupied", "addr", grpcAddr)
+		os.Exit(1)
 	}
 	if err != nil {
-		logger.Fatal(fmt.Sprintf("Failed to listen to %s: %v", grpcAddr, err))
+		logger.Error("Failed to listen", "addr", grpcAddr, "error", err)
+		os.Exit(1)
 	}
 
 	s.GRPCNetListener = lis
 	if !cfg.JsonTranscodeEnabled {
 		go func() {
-			logger.Infof("GRPC server running on %s", grpcAddr)
+			logger.Info("GRPC server running", "addr", grpcAddr)
 			if err := deps.GRPCServer.Serve(lis); err != nil {
-				logger.Fatalf("Error when starting gRPC: %v", err)
+				logger.Error("Error when starting gRPC", "error", err)
+				os.Exit(1)
 			}
 		}()
 
@@ -73,10 +81,11 @@ func (s *Server) serveGRPC() {
 		Handler: s.GRPCTranscodeHandler,
 	}
 
-	logger.Infof("GRPC server with transcoder running on %s", grpcAddr)
+	logger.Info("GRPC server with transcoder running", "addr", grpcAddr)
 	go func() {
 		if err := httpSrv.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Fatalf("Failed to serve with http trancoder: %v", err)
+			logger.Error("Failed to serve with http transcoder", "error", err)
+			os.Exit(1)
 		}
 	}()
 }
@@ -89,7 +98,8 @@ func (s *Server) serveHTTP() {
 	)
 
 	if s.internalGINServer == nil {
-		logger.Fatalf("Gin server must be registered to be able to serve (use RegisterInternalGinServer())")
+		logger.Error("Gin server must be registered to be able to serve (use RegisterInternalGinServer())")
+		os.Exit(1)
 	}
 
 	mux := http.NewServeMux()
@@ -105,10 +115,17 @@ func (s *Server) serveHTTP() {
 	}
 	s.HTTPServer = httpServer
 
-	logger.Infof("HTTP server running on %s", httpServer.Addr)
+	logger.Info("HTTP server running", "addr", httpServer.Addr)
 	go func() {
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Fatalf("HTTP server failed to listen: %v", err)
+			logger.Error("HTTP server failed to listen", "error", err)
+			os.Exit(1)
 		}
 	}()
+}
+
+// fatal logs at Error level then exits. Use only for unrecoverable startup errors.
+func fatal(logger *slog.Logger, msg string, args ...any) {
+	logger.Error(msg, args...)
+	os.Exit(1)
 }

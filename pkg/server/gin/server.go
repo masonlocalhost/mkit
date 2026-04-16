@@ -1,16 +1,16 @@
 package gin
 
 import (
+	"log/slog"
 	"mkit/pkg/config"
 	"mkit/pkg/enum"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 func New(
-	cfg *config.App, logger *logrus.Logger,
+	cfg *config.App, logger *slog.Logger,
 ) (*gin.Engine, error) {
 	if cfg.Environment == enum.EnvironmentProduction {
 		gin.SetMode(gin.ReleaseMode)

@@ -43,7 +43,7 @@ func HandleError(c *gin.Context, err error) {
 
 	if errors.As(err, &sErr) {
 		if sErr.StatusCode == http.StatusInternalServerError {
-			logger.Error(err)
+			logger.ErrorContext(c.Request.Context(), "internal service error", "error", err)
 		}
 
 		c.JSON(
@@ -87,7 +87,7 @@ func HandleError(c *gin.Context, err error) {
 		return
 	}
 
-	logger.Error(err)
+	logger.ErrorContext(c.Request.Context(), "internal error", "error", err)
 	// Error internal
 	c.JSON(
 		http.StatusInternalServerError,

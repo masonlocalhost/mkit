@@ -1,13 +1,13 @@
 package server
 
 import (
+	"log/slog"
 	"mkit/pkg/config"
 	"mkit/pkg/cron"
 	"mkit/pkg/tracing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
-	"github.com/sirupsen/logrus"
 	"github.com/wagslane/go-rabbitmq"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -20,7 +20,7 @@ type Dependencies struct {
 	AppConfig    *config.App
 	Postgres     *gorm.DB
 	Redis        *redis.Client
-	Logger       *logrus.Logger
+	Logger       *slog.Logger
 	GRPCServer   *grpc.Server
 	HealthServer *health.Server
 	GinEngine    *gin.Engine
@@ -51,7 +51,7 @@ func Redis(r *redis.Client) Dependency {
 	}
 }
 
-func Logger(l *logrus.Logger) Dependency {
+func Logger(l *slog.Logger) Dependency {
 	return func(o *Dependencies) {
 		o.Logger = l
 	}

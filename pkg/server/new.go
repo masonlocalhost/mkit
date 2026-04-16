@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc"
 	"net"
 	"net/http"
+	"os"
 )
 
 type internalServer interface {
@@ -62,7 +63,8 @@ func (s *Server) RegisterInternalGRPCServers(iss ...internalGRPCServer) {
 	if grpcConfig != nil && grpcConfig.JsonTranscodeEnabled {
 		transcoder, err := vanguardgrpc.NewTranscoder(s.Deps.GRPCServer)
 		if err != nil {
-			logger.Fatalf("cannot init gRPC trancoder: %v", err)
+			logger.Error("cannot init gRPC transcoder", "error", err)
+			os.Exit(1)
 		}
 
 		s.GRPCTranscodeHandler = h2c.NewHandler(transcoder, &http2.Server{})

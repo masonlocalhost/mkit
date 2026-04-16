@@ -4,21 +4,21 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"mkit/pkg/config"
 	"strings"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"github.com/sirupsen/logrus"
 )
 
 type Service struct {
 	client        *minio.Client
-	logger        *logrus.Logger
+	logger        *slog.Logger
 	defaultBucket string
 }
 
-func New(config *config.App, logger *logrus.Logger) (*Service, error) {
+func New(config *config.App, logger *slog.Logger) (*Service, error) {
 	cfg := config.Minio
 	minioClient, err := minio.New(
 		fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),

@@ -3,20 +3,20 @@ package cron
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"mkit/pkg/config"
 	"sync"
 	"time"
 
 	"github.com/go-redsync/redsync/v4"
 	"github.com/robfig/cron/v3"
-	"github.com/sirupsen/logrus"
 )
 
-// Service is a manager to initialize cronjob at microservice startup time
-// cron jobs and its configs must not be changed at runtime
+// Service is a manager to initialize cronjob at microservice startup time.
+// Cron jobs and their configs must not be changed at runtime.
 type Service struct {
 	cron          *cron.Cron
-	logger        *logrus.Logger
+	logger        *slog.Logger
 	redSync       *redsync.Redsync
 	location      *time.Location
 	ctx           context.Context
@@ -25,7 +25,7 @@ type Service struct {
 }
 
 func New(
-	rootCtx context.Context, location *time.Location, logger *logrus.Logger, redSync *redsync.Redsync,
+	rootCtx context.Context, location *time.Location, logger *slog.Logger, redSync *redsync.Redsync,
 ) *Service {
 	ctx, cancelFunc := context.WithCancel(context.WithoutCancel(rootCtx))
 
@@ -59,8 +59,7 @@ func (s *Service) ScheduleCron(cfg *config.Cronjob, handler Handler) error {
 	c := NewCronjob(cfg.ID, cfg.TaskTimeout, s.logger, s.redSync, &handler)
 
 	if cfg.Disabled {
-		s.logger.Infof("Skip schedule cronjob [%s] because it is disabled.", cfg.ID)
-
+		s.logger.Info("Skip schedule cronjob — disabled", "id", cfg.ID)
 		return nil
 	}
 
@@ -70,7 +69,7 @@ func (s *Service) ScheduleCron(cfg *config.Cronjob, handler Handler) error {
 		return err
 	}
 	s.registry.Store(cfg.ID, struct{}{})
-	s.logger.Infof("Cron [%s] is scheduled with spec '%s'", cfg.ID, cfg.Spec)
+	s.logger.Info("Cron scheduled", "id", cfg.ID, "spec", cfg.Spec)
 
 	return nil
 }

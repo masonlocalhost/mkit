@@ -3,12 +3,13 @@ package pubsub
 import (
 	"context"
 	"fmt"
-	"github.com/sirupsen/logrus"
+	"log/slog"
+	"sync"
+
 	"github.com/wagslane/go-rabbitmq"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-	"sync"
 )
 
 type state int
@@ -29,7 +30,7 @@ const (
 // Service is used to publish and subscribe proto messages
 type Service struct {
 	serviceName     string
-	logger          *logrus.Logger
+	logger          *slog.Logger
 	conn            *rabbitmq.Conn
 	subscriberMap   map[string]*MessageChannel
 	ctx             context.Context
@@ -42,7 +43,7 @@ type Service struct {
 }
 
 func NewService(
-	ctx context.Context, conn *rabbitmq.Conn, serviceName string, exchangeName string, logger *logrus.Logger,
+	ctx context.Context, conn *rabbitmq.Conn, serviceName string, exchangeName string, logger *slog.Logger,
 	payloadRegistry map[string]proto.Message,
 ) (*Service, error) {
 	publisher, err := rabbitmq.NewPublisher(conn)
@@ -64,7 +65,6 @@ func NewService(
 }
 
 func (s *Service) Subscribe(topic string, transmissionType TransmissionType, handler handler) error {
-	// Currently only support subscribing when service is not started
 	if s.state != stateIdle {
 		return fmt.Errorf("cannot add subscriber when pubsub service is running")
 	}
@@ -90,8 +90,7 @@ func (s *Service) Subscribe(topic string, transmissionType TransmissionType, han
 	return nil
 }
 
-// Publish broadcast to all consumer exclude same-service, same-topic consumers
-// (send to all queues bind to exchange, with current topic)
+// Publish broadcasts to all consumers bound to the exchange with the given topic.
 func (s *Service) Publish(ctx context.Context, topic string, payload proto.Message) error {
 	msg, err := protojson.Marshal(payload)
 	if err != nil {
@@ -109,8 +108,7 @@ func (s *Service) Publish(ctx context.Context, topic string, payload proto.Messa
 
 func (s *Service) Start() error {
 	if s.state == stateRunning {
-		s.logger.Errorf("pubsub service already running")
-
+		s.logger.Error("pubsub service already running")
 		return nil
 	}
 	group, ctx := errgroup.WithContext(s.ctx)
@@ -120,7 +118,7 @@ func (s *Service) Start() error {
 		group.Go(func() error {
 			return msgChannel.StartConsuming(ctx, s.conn)
 		})
-		s.logger.Infof("Started consuming for topic: %v", topic)
+		s.logger.Info("Started consuming", "topic", topic)
 	}
 	s.Unlock()
 
@@ -129,12 +127,11 @@ func (s *Service) Start() error {
 }
 
 func (s *Service) Stop() {
-	// s.ctxCancelFunc()
 	s.Lock()
 	for _, msgChannel := range s.subscriberMap {
 		msgChannel.StopConsuming()
 	}
 	s.Unlock()
 
-	s.logger.Infof("Stopped all pubsub consumers")
+	s.logger.Info("Stopped all pubsub consumers")
 }

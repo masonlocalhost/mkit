@@ -31,7 +31,7 @@ func HandleError(ctx context.Context, err error) error {
 		return status.Error(codes.Unauthenticated, err.Error())
 	}
 
-	logger.Error(err)
+	logger.ErrorContext(ctx, "internal error", "error", err)
 	// Error internal
 
 	return status.Error(codes.Internal, err.Error())

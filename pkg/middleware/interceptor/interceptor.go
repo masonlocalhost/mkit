@@ -3,17 +3,18 @@ package interceptor
 import (
 	"context"
 	"fmt"
-	"github.com/sirupsen/logrus"
+	"log/slog"
+	"runtime/debug"
+	"time"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
-	"runtime/debug"
-	"time"
 )
 
-// UnaryPanicInterceptor recovers from panics in unary RPCs
-func UnaryPanicInterceptor(logger *logrus.Logger) grpc.UnaryServerInterceptor {
+// UnaryPanicInterceptor recovers from panics in unary RPCs.
+func UnaryPanicInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
 		req interface{},
@@ -24,10 +25,10 @@ func UnaryPanicInterceptor(logger *logrus.Logger) grpc.UnaryServerInterceptor {
 			if r := recover(); r != nil {
 				stack := string(debug.Stack())
 
-				logger.WithFields(logrus.Fields{
-					"stack":  stack,
-					"method": info.FullMethod,
-				}).Error(fmt.Sprintf("panic recovered in Gin handler: %v", r))
+				logger.ErrorContext(ctx, fmt.Sprintf("panic recovered in gRPC handler: %v", r),
+					"stack", stack,
+					"method", info.FullMethod,
+				)
 
 				err = status.Errorf(codes.Internal, "internal error")
 			}
@@ -37,7 +38,7 @@ func UnaryPanicInterceptor(logger *logrus.Logger) grpc.UnaryServerInterceptor {
 	}
 }
 
-func UnaryLogger(logger *logrus.Logger) grpc.UnaryServerInterceptor {
+func UnaryLogger(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
 		req interface{},
@@ -46,25 +47,23 @@ func UnaryLogger(logger *logrus.Logger) grpc.UnaryServerInterceptor {
 	) (interface{}, error) {
 		start := time.Now()
 
-		// Call the handler
 		resp, err := handler(ctx, req)
 
 		duration := time.Since(start)
 		st := status.Convert(err)
 
-		// Get client IP if available
 		var ip string
 		if p, ok := peer.FromContext(ctx); ok {
 			ip = p.Addr.String()
 		}
 
-		logger.WithFields(logrus.Fields{
-			"method":   info.FullMethod,
-			"status":   st.Code().String(),
-			"duration": duration,
-			"ip":       ip,
-			"error":    st.Message(),
-		}).Info("Incoming gRPC request")
+		logger.InfoContext(ctx, "Incoming gRPC request",
+			"method", info.FullMethod,
+			"status", st.Code().String(),
+			"duration", duration,
+			"ip", ip,
+			"error", st.Message(),
+		)
 
 		return resp, err
 	}

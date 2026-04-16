@@ -4,32 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"mkit/example/grpcapp/internal/model"
 	"mkit/example/grpcapp/internal/repository/technology"
 	"mkit/pkg/error/repoerror"
 	"mkit/pkg/error/serviceerror"
 	"mkit/pkg/sqlutil"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 type Service struct {
-	logger         *logrus.Logger
+	logger         *slog.Logger
 	technologyRepo *technology.Repository
 }
 
-func NewService(logger *logrus.Logger, technologyRepo *technology.Repository) *Service {
+func NewService(logger *slog.Logger, technologyRepo *technology.Repository) *Service {
 	return &Service{
 		logger:         logger,
 		technologyRepo: technologyRepo,
 	}
-
 }
 
 func (s *Service) FindByFilters(
 	ctx context.Context, vendors, cpeTypes []string, createdAtFrom, createdAtTo time.Time, search string,
-	limit, offset int, isCount bool, sorts []sqlutil.SortItem, //isPreloadCollections bool,
+	limit, offset int, isCount bool, sorts []sqlutil.SortItem,
 ) ([]*model.Technology, int, error) {
 	techs, total, err := s.technologyRepo.FindTechnologiesByFilters(
 		ctx, vendors, cpeTypes, createdAtFrom, createdAtTo, search, limit, offset,
@@ -43,7 +41,7 @@ func (s *Service) FindByFilters(
 }
 
 func (s *Service) FirstByID(ctx context.Context, id string) (*model.Technology, error) {
-	tech, err := s.technologyRepo.FirstTechnologyByID(ctx, id) // isPreloadCollections)
+	tech, err := s.technologyRepo.FirstTechnologyByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repoerror.ErrNotFound) {
 			return nil, serviceerror.NewNotFound(err).SetMessage("Technology not found")

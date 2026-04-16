@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -49,7 +50,7 @@ func (s *Server) Close(ctx context.Context) {
 
 	if trace := d.Tracing; trace != nil {
 		if err := trace.Stop(ctx); err != nil {
-			logger.Warnf("Failed to stop tracing: %v", err)
+			logger.Warn("Failed to stop tracing", "error", err)
 		} else {
 			logger.Info("Tracing stopped")
 		}
@@ -60,10 +61,9 @@ func (s *Server) Close(ctx context.Context) {
 		logger.Info("Grpc server stopped")
 	}
 
-	// close dependencies
 	if cronManager := d.CronManager; cronManager != nil {
 		if err := cronManager.Stop(); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Warnf("Failed to stop cron manager: %v", err)
+			logger.Warn("Failed to stop cron manager", "error", err)
 		} else {
 			logger.Info("Cron manager stopped")
 		}
@@ -71,7 +71,7 @@ func (s *Server) Close(ctx context.Context) {
 
 	if rabbitMQ := d.RabbitMQ; rabbitMQ != nil {
 		if err := rabbitMQ.Close(); err != nil {
-			logger.Warnf("Error when graceful shutdown for RabbitMQ: %v", err)
+			logger.Warn("Error when graceful shutdown for RabbitMQ", "error", err)
 		} else {
 			logger.Info("RabbitMQ shut down")
 		}
@@ -79,7 +79,7 @@ func (s *Server) Close(ctx context.Context) {
 
 	if redisClient := d.Redis; redisClient != nil {
 		if err := redisClient.Close(); err != nil {
-			logger.Warnf("Error when graceful shutdown for Redis: %v", err)
+			logger.Warn("Error when graceful shutdown for Redis", "error", err)
 		} else {
 			logger.Info("Redis client shut down")
 		}
@@ -88,7 +88,7 @@ func (s *Server) Close(ctx context.Context) {
 	if db := d.Postgres; db != nil {
 		if sqlDB, err := db.DB(); err == nil {
 			if err = sqlDB.Close(); err != nil {
-				logger.Warnf("Error when graceful shutdown for Postgresql: %v", err)
+				logger.Warn("Error when graceful shutdown for Postgresql", "error", err)
 			} else {
 				logger.Info("Postgresql shut down")
 			}

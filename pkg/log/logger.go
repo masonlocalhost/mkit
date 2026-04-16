@@ -2,47 +2,61 @@ package log
 
 import (
 	"fmt"
-	"io"
-	"mkit/pkg/config"
+	"log/slog"
 	"os"
-	"time"
+	"strings"
 
-	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
-	"github.com/sirupsen/logrus"
+	"github.com/lmittmann/tint"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
+	otellog "go.opentelemetry.io/otel/sdk/log"
+	"mkit/pkg/config"
 )
 
-// NewLogger create an logrus instance for using globally
-func NewLogger(cfg *config.App) (*logrus.Logger, error) {
-	var (
-		logCfg  = cfg.Log
-		logger  = logrus.New()
-		logPath = logCfg.LogFilePath
-	)
-
-	level, err := logrus.ParseLevel(logCfg.Level)
+// NewLogger creates a *slog.Logger that:
+//   - writes colourised, human-readable output to stdout (via tint)
+//   - forwards every record to OpenTelemetry as raw JSON over OTLP when
+//     logProvider is non-nil (set up by the tracing package)
+func NewLogger(cfg *config.App, logProvider *otellog.LoggerProvider) (*slog.Logger, error) {
+	level, err := parseLevel(cfg.Log.Level)
 	if err != nil {
-		return nil, fmt.Errorf("cant parse logrus level for '%s': %w", level, err)
+		return nil, fmt.Errorf("cannot parse log level %q: %w", cfg.Log.Level, err)
 	}
 
-	if err := os.MkdirAll(logPath, 0777); err != nil {
-		return nil, fmt.Errorf("cannot create log directory: %w", err)
+	termHandler := tint.NewHandler(os.Stdout, &tint.Options{
+		Level:      level,
+		TimeFormat: "Jan _2 15:04:05.000",
+		AddSource:  true,
+	})
+
+	handlers := []slog.Handler{termHandler}
+
+	if logProvider != nil {
+		otelHandler := otelslog.NewHandler(
+			cfg.Tracing.ServiceName,
+			otelslog.WithLoggerProvider(logProvider),
+			otelslog.WithVersion(cfg.Version),
+		)
+		handlers = append(handlers, otelHandler)
 	}
 
-	logger.SetLevel(level)
-	logger.SetFormatter(&UTCFormatter{Formatter: NewDetailFormatter("")})
-	logger.SetReportCaller(true)
-
-	writer, err := rotatelogs.New(
-		fmt.Sprintf("%v/%v", logPath, "log-%Y-%m-%d.txt"),
-		rotatelogs.WithMaxAge(time.Hour*24*31),
-		rotatelogs.WithRotationTime(time.Hour*24),
-		rotatelogs.WithClock(rotatelogs.UTC),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("cannot create rotate log writer: %w", err)
-	}
-
-	logger.SetOutput(io.MultiWriter(writer, os.Stdout))
+	logger := slog.New(newMultiHandler(handlers...))
+	slog.SetDefault(logger)
 
 	return logger, nil
+}
+
+// parseLevel maps logrus-compatible level strings to slog.Level.
+func parseLevel(s string) (slog.Level, error) {
+	switch strings.ToLower(s) {
+	case "trace", "debug":
+		return slog.LevelDebug, nil
+	case "info", "":
+		return slog.LevelInfo, nil
+	case "warn", "warning":
+		return slog.LevelWarn, nil
+	case "error", "fatal", "panic":
+		return slog.LevelError, nil
+	default:
+		return 0, fmt.Errorf("unknown level %q", s)
+	}
 }

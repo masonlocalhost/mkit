@@ -2,44 +2,42 @@ package middleware
 
 import (
 	"fmt"
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
+	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"time"
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 )
 
-func Logger(logger *logrus.Logger) gin.HandlerFunc {
+func Logger(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 
-		// Process request
 		c.Next()
 
-		duration := time.Since(start)
-		logger.WithFields(logrus.Fields{
-			"status":     c.Writer.Status(),
-			"method":     c.Request.Method,
-			"path":       c.Request.URL.Path,
-			"ip":         c.ClientIP(),
-			"duration":   duration,
-			"user-agent": c.Request.UserAgent(),
-		}).Info("Incoming request")
+		logger.InfoContext(c.Request.Context(), "Incoming request",
+			"status", c.Writer.Status(),
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"ip", c.ClientIP(),
+			"duration", time.Since(start),
+			"user_agent", c.Request.UserAgent(),
+		)
 	}
 }
 
-func Recovery(logger *logrus.Logger) gin.HandlerFunc {
+func Recovery(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				// Stack trace
 				stack := string(debug.Stack())
 
-				logger.WithFields(logrus.Fields{
-					"stack": stack,
-					"url":   c.Request.URL.String(),
-				}).Error(fmt.Sprintf("panic recovered in Gin handler: %v", rec))
+				logger.ErrorContext(c.Request.Context(), fmt.Sprintf("panic recovered in Gin handler: %v", rec),
+					"stack", stack,
+					"url", c.Request.URL.String(),
+				)
 
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 					"error":  "Internal Server Error",

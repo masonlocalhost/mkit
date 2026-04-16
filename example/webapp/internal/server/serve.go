@@ -2,14 +2,16 @@ package server
 
 import (
 	"context"
-	slog "log"
+	stdlog "log"
+	"os"
+
 	"mkit/example/webapp/config"
 	"mkit/pkg/cache/redis"
 	"mkit/pkg/log"
 	"mkit/pkg/postgres"
 	"mkit/pkg/server"
 	"mkit/pkg/server/gin"
-	"os"
+
 	"os/signal"
 	"syscall"
 )
@@ -22,31 +24,35 @@ func Run() {
 
 	cfg, err := config.GetConfig()
 	if err != nil {
-		slog.Fatalf("cannot init config: %v", err)
+		stdlog.Fatalf("cannot init config: %v", err)
 	}
 
 	appCfg := &cfg.App
-	logger, err := log.NewLogger(appCfg)
+
+	logger, err := log.NewLogger(appCfg, nil)
 	if err != nil {
-		slog.Fatalf("failed to init logger: %v", err)
+		stdlog.Fatalf("failed to init logger: %v", err)
 	}
 
 	db, err := postgres.New(logger, appCfg)
 	if err != nil {
-		logger.Fatalf("failed to init postgresql db: %v", err)
+		logger.Error("failed to init postgresql db", "error", err)
+		os.Exit(1)
 	}
 
 	redisClient, err := redis.NewClient(ctx, appCfg)
 	if err != nil {
-		logger.Fatalf("failed to init redis: %v", err)
+		logger.Error("failed to init redis", "error", err)
+		os.Exit(1)
 	}
 
 	ginEngine, err := gin.New(appCfg, logger)
 	if err != nil {
-		logger.Fatalf("failed to init gin engine db: %v", err)
+		logger.Error("failed to init gin engine", "error", err)
+		os.Exit(1)
 	}
 
-	// mkit service handles lifecycle of common depecdencies like: db, redis, tracing...
+	// mkit service handles lifecycle of common dependencies like: db, redis, tracing...
 	service := server.NewServer(
 		server.AppConfig(appCfg),
 		server.Logger(logger),

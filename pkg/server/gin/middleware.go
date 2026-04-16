@@ -2,6 +2,7 @@ package gin
 
 import (
 	"fmt"
+	"log/slog"
 	"mkit/pkg/log"
 	"net/http"
 	"runtime/debug"
@@ -10,10 +11,9 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 )
 
-func LoggerMiddleware(logger *logrus.Logger) gin.HandlerFunc {
+func LoggerMiddleware(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reqID := c.GetHeader("X-Request-ID")
 		if reqID == "" {
@@ -21,40 +21,34 @@ func LoggerMiddleware(logger *logrus.Logger) gin.HandlerFunc {
 			reqID = id.String()
 		}
 
-		start := time.Now()
-		entry := logrus.NewEntry(logger).WithFields(logrus.Fields{
-			"request_id": reqID,
-		})
-
+		entry := logger.With("request_id", reqID)
 		ctx := log.WithLogger(c.Request.Context(), entry)
 		c.Request = c.Request.WithContext(ctx)
-		// Process request
+
+		start := time.Now()
 		c.Next()
 
-		duration := time.Since(start)
-		entry.WithContext(c.Request.Context()).WithFields(logrus.Fields{
-			"status":     c.Writer.Status(),
-			"duration":   duration,
-			"method":     c.Request.Method,
-			"path":       c.Request.URL.Path,
-			"client_ip":  c.ClientIP(),
-			"ip":         c.ClientIP(),
-			"user-agent": c.Request.UserAgent(),
-		}).Info("Incoming request")
+		entry.InfoContext(c.Request.Context(), "Incoming request",
+			"status", c.Writer.Status(),
+			"duration", time.Since(start),
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"client_ip", c.ClientIP(),
+			"user_agent", c.Request.UserAgent(),
+		)
 	}
 }
 
-func RecoveryMiddleware(logger *logrus.Logger) gin.HandlerFunc {
+func RecoveryMiddleware(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				// Stack trace
 				stack := string(debug.Stack())
 
-				logger.WithContext(c.Request.Context()).WithFields(logrus.Fields{
-					"stack": stack,
-					"url":   c.Request.URL.String(),
-				}).Error(fmt.Sprintf("panic recovered in Gin handler: %v", rec))
+				logger.ErrorContext(c.Request.Context(), fmt.Sprintf("panic recovered in Gin handler: %v", rec),
+					"stack", stack,
+					"url", c.Request.URL.String(),
+				)
 
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 					"error":  "Internal Server Error",

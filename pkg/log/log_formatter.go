@@ -1,87 +1,51 @@
 package log
 
 import (
-	"bytes"
-	"fmt"
-	"github.com/sirupsen/logrus"
-	"path"
-	"runtime"
-	"sort"
-	"strings"
+	"context"
+	"log/slog"
 )
 
-type UTCFormatter struct {
-	logrus.Formatter
+// multiHandler fans a single log record out to every registered handler.
+type multiHandler struct {
+	handlers []slog.Handler
 }
 
-func (u UTCFormatter) Format(e *logrus.Entry) ([]byte, error) {
-	e.Time = e.Time.UTC()
-	return u.Formatter.Format(e)
+func newMultiHandler(handlers ...slog.Handler) slog.Handler {
+	return &multiHandler{handlers: handlers}
 }
 
-type DetailFormatter struct {
-	TimestampFormat string
+func (m *multiHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	for _, h := range m.handlers {
+		if h.Enabled(ctx, level) {
+			return true
+		}
+	}
+	return false
 }
 
-func NewDetailFormatter(timestampFormat string) *DetailFormatter {
-	if len(timestampFormat) == 0 {
-		timestampFormat = "Jan _2 15:04:05.000"
+func (m *multiHandler) Handle(ctx context.Context, r slog.Record) error {
+	for _, h := range m.handlers {
+		if h.Enabled(ctx, r.Level) {
+			if err := h.Handle(ctx, r.Clone()); err != nil {
+				return err
+			}
+		}
 	}
-	return &DetailFormatter{TimestampFormat: timestampFormat}
+	return nil
 }
 
-func CallerPrettyfier(f *runtime.Frame) string {
-	s := strings.LastIndex(f.Function, ".") + 1
-	return fmt.Sprintf("caller={%s:%d::%s}", path.Base(f.File), f.Line, f.Function[s:])
-	//return fmt.Sprintf("[%s:%d::%s]", path.Base(f.File), f.Line, f.Function[s:])
+func (m *multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	handlers := make([]slog.Handler, len(m.handlers))
+	for i, h := range m.handlers {
+		handlers[i] = h.WithAttrs(attrs)
+	}
+	return &multiHandler{handlers: handlers}
 }
 
-func CallerPrettyfierEx(f *runtime.Frame) (string, string) {
-	s := strings.LastIndex(f.Function, ".") + 1
-	return f.Function[s:], fmt.Sprintf("%s:%d", path.Base(f.File), f.Line)
-}
-
-func (f *DetailFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	var b *bytes.Buffer
-
-	if entry.Buffer != nil {
-		b = entry.Buffer
-	} else {
-		b = &bytes.Buffer{}
+func (m *multiHandler) WithGroup(name string) slog.Handler {
+	handlers := make([]slog.Handler, len(m.handlers))
+	for i, h := range m.handlers {
+		handlers[i] = h.WithGroup(name)
 	}
-
-	b.WriteString(entry.Time.UTC().Format(f.TimestampFormat))
-	b.WriteString(" [")
-	b.WriteString(entry.Level.String())
-	b.WriteString("]")
-
-	if entry.Message != "" {
-		b.WriteString(" - ")
-		b.WriteString(entry.Message)
-	}
-
-	b.WriteString(" || ")
-
-	// Sort keys of entry.Data
-	keys := make([]string, 0, len(entry.Data))
-	for k := range entry.Data {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		b.WriteString(key)
-		b.WriteByte('=')
-		b.WriteByte('{')
-		_, _ = fmt.Fprint(b, entry.Data[key])
-		b.WriteString("}, ")
-	}
-
-	if entry.Caller != nil {
-		b.WriteString(" ")
-		b.WriteString(CallerPrettyfier(entry.Caller))
-	}
-
-	b.WriteByte('\n')
-	return b.Bytes(), nil
+	return &multiHandler{handlers: handlers}
 }
