@@ -16,7 +16,7 @@ import (
 	// "mkit/pkg/minio"
 	techrepo "mkit/example/ginapp/internal/repository/technology"
 	"mkit/pkg/postgres"
-	gin2 "mkit/pkg/server/gin"
+	chi2 "mkit/pkg/server/chi"
 
 	// "mkit/pkg/pubsub"
 	// "mkit/pkg/rabbitmq"
@@ -79,9 +79,9 @@ func Run() {
 		os.Exit(1)
 	}
 
-	ginEngine, err := gin2.New(appCfg, logger)
+	chiRouter, err := chi2.New(appCfg, logger)
 	if err != nil {
-		logger.Error("failed to init gin engine", "error", err)
+		logger.Error("failed to init chi router", "error", err)
 		os.Exit(1)
 	}
 
@@ -98,7 +98,7 @@ func Run() {
 	service := server.NewServer(
 		server.AppConfig(appCfg),
 		server.Logger(logger),
-		server.GinEngine(ginEngine),
+		server.ChiRouter(chiRouter),
 		// server.Redis(redisClient),
 		server.Postgres(db),
 		server.Tracing(trace),
@@ -116,9 +116,9 @@ func Run() {
 		TechnologyService: techService,
 	}
 
-	ginServer := &Server{dep: dep}
+	chiServer := &Server{dep: dep}
 
-	service.RegisterInternalGinServer(ginServer)
+	service.RegisterInternalHTTPServer(chiServer)
 	service.Serve()
 
 	<-ctx.Done()

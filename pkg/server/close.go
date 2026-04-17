@@ -23,13 +23,13 @@ func (s *Server) closeInternalServers() {
 		}
 	}
 
-	if s.internalGINServer != nil {
-		name := s.internalGINServer.Name()
-		logger.Info(fmt.Sprintf("Graceful shutdown for gin server %s starts", name))
-		if err := s.internalGINServer.Close(); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Warn(fmt.Sprintf("Error when graceful shutdown for gin server %s: %s", name, err))
+	if s.internalHTTPServer != nil {
+		name := s.internalHTTPServer.Name()
+		logger.Info(fmt.Sprintf("Graceful shutdown for http server %s starts", name))
+		if err := s.internalHTTPServer.Close(); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Warn(fmt.Sprintf("Error when graceful shutdown for http server %s: %s", name, err))
 		} else {
-			logger.Info(fmt.Sprintf("Gin server %s is shut down successfully", name))
+			logger.Info(fmt.Sprintf("HTTP server %s is shut down successfully", name))
 		}
 	}
 }

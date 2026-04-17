@@ -10,7 +10,7 @@ import (
 	"mkit/pkg/log"
 	"mkit/pkg/postgres"
 	"mkit/pkg/server"
-	"mkit/pkg/server/gin"
+	chi2 "mkit/pkg/server/chi"
 
 	"os/signal"
 	"syscall"
@@ -46,9 +46,9 @@ func Run() {
 		os.Exit(1)
 	}
 
-	ginEngine, err := gin.New(appCfg, logger)
+	chiRouter, err := chi2.New(appCfg, logger)
 	if err != nil {
-		logger.Error("failed to init gin engine", "error", err)
+		logger.Error("failed to init chi router", "error", err)
 		os.Exit(1)
 	}
 
@@ -56,7 +56,7 @@ func Run() {
 	service := server.NewServer(
 		server.AppConfig(appCfg),
 		server.Logger(logger),
-		server.GinEngine(ginEngine),
+		server.ChiRouter(chiRouter),
 		server.Redis(redisClient),
 		server.Postgres(db),
 		// server.Tracing(trace),
@@ -70,7 +70,7 @@ func Run() {
 		// other deps
 	}
 
-	service.RegisterInternalGinServer(webAppServer)
+	service.RegisterInternalHTTPServer(webAppServer)
 	service.Serve()
 
 	<-ctx.Done()

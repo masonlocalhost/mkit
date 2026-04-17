@@ -32,9 +32,9 @@ func (s *Server) init() {
 		}
 	}
 
-	if s.internalGINServer != nil {
-		if err := s.internalGINServer.Init(); err != nil {
-			logger.Error("Error when init gin service", "name", s.internalGINServer.Name(), "error", err)
+	if s.internalHTTPServer != nil {
+		if err := s.internalHTTPServer.Init(); err != nil {
+			logger.Error("Error when init http service", "name", s.internalHTTPServer.Name(), "error", err)
 			os.Exit(1)
 		}
 	}
@@ -97,8 +97,8 @@ func (s *Server) serveHTTP() {
 		cfg    = deps.AppConfig.HTTP
 	)
 
-	if s.internalGINServer == nil {
-		logger.Error("Gin server must be registered to be able to serve (use RegisterInternalGinServer())")
+	if s.internalHTTPServer == nil {
+		logger.Error("HTTP server must be registered to be able to serve (use RegisterInternalHTTPServer())")
 		os.Exit(1)
 	}
 
@@ -107,7 +107,7 @@ func (s *Server) serveHTTP() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("/", deps.GinEngine.Handler())
+	mux.Handle("/", deps.ChiRouter)
 
 	httpServer := &http.Server{
 		Handler: mux,

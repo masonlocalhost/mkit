@@ -6,7 +6,7 @@ import (
 	"mkit/pkg/cron"
 	"mkit/pkg/tracing"
 
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/wagslane/go-rabbitmq"
 	"google.golang.org/grpc"
@@ -23,7 +23,7 @@ type Dependencies struct {
 	Logger       *slog.Logger
 	GRPCServer   *grpc.Server
 	HealthServer *health.Server
-	GinEngine    *gin.Engine
+	ChiRouter    chi.Router
 	Tracing      *tracing.Service
 	RabbitMQ     *rabbitmq.Conn
 	CronManager  *cron.Service
@@ -63,9 +63,9 @@ func GRPCServer(gs *grpc.Server) Dependency {
 	}
 }
 
-func GinEngine(g *gin.Engine) Dependency {
+func ChiRouter(r chi.Router) Dependency {
 	return func(o *Dependencies) {
-		o.GinEngine = g
+		o.ChiRouter = r
 	}
 }
 

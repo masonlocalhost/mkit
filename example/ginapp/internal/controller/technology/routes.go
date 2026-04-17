@@ -1,10 +1,10 @@
 package technology
 
-import "github.com/gin-gonic/gin"
+import "github.com/go-chi/chi/v5"
 
-func (cc *Controller) Register(router gin.IRouter) {
-	router.GET("/:id", cc.GetTechnology)
-	router.GET("", cc.ListTechnologies)
-	router.GET("/vendor", cc.ListTechnologyVendors)
-	router.GET("/cpe-type", cc.ListTechnologyCPETypes)
+func (cc *Controller) Register(router chi.Router) {
+	router.Get("/{id}", cc.GetTechnology)
+	router.Get("/", cc.ListTechnologies)
+	router.Get("/vendor", cc.ListTechnologyVendors)
+	router.Get("/cpe-type", cc.ListTechnologyCPETypes)
 }

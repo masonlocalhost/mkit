@@ -2,7 +2,7 @@ package server
 
 import (
 	"connectrpc.com/vanguard/vanguardgrpc"
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
@@ -22,10 +22,11 @@ type internalGRPCServer interface {
 	RegisterPBs(server *grpc.Server)
 }
 
-type internalGinServer interface {
+type internalHTTPServer interface {
 	internalServer
-	RegisterRouter(router *gin.Engine)
+	RegisterRouter(router chi.Router)
 }
+
 type Server struct {
 	GRPCNetListener      net.Listener
 	GRPCTranscodeServer  *http.Server
@@ -34,7 +35,7 @@ type Server struct {
 
 	Deps                *Dependencies
 	internalGRPCServers []internalGRPCServer
-	internalGINServer   internalGinServer
+	internalHTTPServer  internalHTTPServer
 }
 
 func NewServer(deps ...Dependency) *Server {
@@ -71,7 +72,7 @@ func (s *Server) RegisterInternalGRPCServers(iss ...internalGRPCServer) {
 	}
 }
 
-func (s *Server) RegisterInternalGinServer(server internalGinServer) {
-	server.RegisterRouter(s.Deps.GinEngine)
-	s.internalGINServer = server
+func (s *Server) RegisterInternalHTTPServer(server internalHTTPServer) {
+	server.RegisterRouter(s.Deps.ChiRouter)
+	s.internalHTTPServer = server
 }

@@ -5,9 +5,10 @@ import (
 	"mkit/example/ginapp/pkg/converter"
 	"mkit/example/ginapp/pkg/dto"
 	"mkit/pkg/error/serviceerror"
-	ginutil "mkit/pkg/server/gin/util"
+	chiutil "mkit/pkg/server/chi/util"
+	"net/http"
 
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
 )
 
 type Controller struct {
@@ -20,45 +21,43 @@ func NewController(dep *controller.DependencyContainer) *Controller {
 	}
 }
 
-func (cc *Controller) GetTechnology(c *gin.Context) {
+func (cc *Controller) GetTechnology(w http.ResponseWriter, r *http.Request) {
 	var (
 		req = &dto.GetTechnologyRequest{}
-		ctx = c.Request.Context()
+		ctx = r.Context()
 	)
-	if err := c.ShouldBindUri(req); err != nil {
-		ginutil.HandleError(c, serviceerror.NewInvalidArgument(err))
 
+	req.ID = chi.URLParam(r, "id")
+	if req.ID == "" {
+		chiutil.HandleError(w, r, serviceerror.NewInvalidArgument(nil).SetMessage("id is required"))
 		return
 	}
 
 	tech, err := cc.dep.TechnologyService.FirstByID(ctx, req.ID)
 	if err != nil {
-		ginutil.HandleError(c, err)
-
+		chiutil.HandleError(w, r, err)
 		return
 	}
 
-	ginutil.HandleSuccess(c, &dto.GetTechnologyResponse{
+	chiutil.HandleSuccess(w, r, &dto.GetTechnologyResponse{
 		Technology: converter.TechnologyToDTO(tech),
 	})
 }
 
-func (cc *Controller) ListTechnologies(c *gin.Context) {
+func (cc *Controller) ListTechnologies(w http.ResponseWriter, r *http.Request) {
 	var (
 		req = &dto.ListTechnologiesRequest{}
-		ctx = c.Request.Context()
-		// user = &model.User{ID: "mock user"}
+		ctx = r.Context()
 	)
-	if err := c.ShouldBind(req); err != nil {
-		ginutil.HandleError(c, serviceerror.NewInvalidArgument(err))
 
+	if err := chiutil.BindQuery(r, req); err != nil {
+		chiutil.HandleError(w, r, serviceerror.NewInvalidArgument(err))
 		return
 	}
 
-	sorts, err := ginutil.GetSortArray(req.SortBy, req.SortOrder, dto.ListTechnologiesOrderColumns)
+	sorts, err := chiutil.GetSortArray(req.SortBy, req.SortOrder, dto.ListTechnologiesOrderColumns)
 	if err != nil {
-		ginutil.HandleError(c, err)
-
+		chiutil.HandleError(w, r, err)
 		return
 	}
 
@@ -67,58 +66,51 @@ func (cc *Controller) ListTechnologies(c *gin.Context) {
 		req.Limit, req.Offset, true, sorts,
 	)
 	if err != nil {
-		ginutil.HandleError(c, err)
-
+		chiutil.HandleError(w, r, err)
 		return
 	}
 
-	ginutil.HandleSuccess(c, dto.ListTechnologiesResponse(
+	chiutil.HandleSuccess(w, r, dto.ListTechnologiesResponse(
 		converter.TechnologiesToDTOs(techs),
 	), total, req.Offset, req.Limit)
 }
 
-func (cc *Controller) ListTechnologyVendors(c *gin.Context) {
+func (cc *Controller) ListTechnologyVendors(w http.ResponseWriter, r *http.Request) {
 	var (
 		req = &dto.ListTechnologyVendorsRequest{}
-		// user = &model.User{ID: "mock user"}
-		ctx = c.Request.Context()
+		ctx = r.Context()
 	)
 
-	if err := c.ShouldBind(req); err != nil {
-		ginutil.HandleError(c, serviceerror.NewInvalidArgument(err))
-
+	if err := chiutil.BindQuery(r, req); err != nil {
+		chiutil.HandleError(w, r, serviceerror.NewInvalidArgument(err))
 		return
 	}
 
-	r, err := cc.dep.TechnologyService.FindTechnologyVendors(ctx)
+	result, err := cc.dep.TechnologyService.FindTechnologyVendors(ctx)
 	if err != nil {
-		ginutil.HandleError(c, err)
-
+		chiutil.HandleError(w, r, err)
 		return
 	}
 
-	ginutil.HandleSuccess(c, dto.ListTechnologyVendorsResponse(r))
+	chiutil.HandleSuccess(w, r, dto.ListTechnologyVendorsResponse(result))
 }
 
-func (cc *Controller) ListTechnologyCPETypes(c *gin.Context) {
+func (cc *Controller) ListTechnologyCPETypes(w http.ResponseWriter, r *http.Request) {
 	var (
 		req = &dto.ListTechnologyCPETypesRequest{}
-		// user = &model.User{ID: "mock user"}
-		ctx = c.Request.Context()
+		ctx = r.Context()
 	)
 
-	if err := c.ShouldBind(req); err != nil {
-		ginutil.HandleError(c, serviceerror.NewInvalidArgument(err))
-
+	if err := chiutil.BindQuery(r, req); err != nil {
+		chiutil.HandleError(w, r, serviceerror.NewInvalidArgument(err))
 		return
 	}
 
-	r, err := cc.dep.TechnologyService.FindTechnologyCPETypes(ctx)
+	result, err := cc.dep.TechnologyService.FindTechnologyCPETypes(ctx)
 	if err != nil {
-		ginutil.HandleError(c, err)
-
+		chiutil.HandleError(w, r, err)
 		return
 	}
 
-	ginutil.HandleSuccess(c, dto.ListTechnologyCPETypesResponse(r))
+	chiutil.HandleSuccess(w, r, dto.ListTechnologyCPETypesResponse(result))
 }

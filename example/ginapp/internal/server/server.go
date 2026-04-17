@@ -5,23 +5,21 @@ import (
 
 	ctrl "mkit/example/ginapp/internal/controller"
 
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
 	"golang.org/x/sync/errgroup"
 )
 
 type controller interface {
-	Register(r gin.IRouter)
+	Register(r chi.Router)
 }
 type Server struct {
 	dep      *ctrl.DependencyContainer
 	errGroup errgroup.Group
 }
 
-func (s *Server) RegisterRouter(router *gin.Engine) {
+func (s *Server) RegisterRouter(router chi.Router) {
 	var (
-		api         = router.Group("/api/v1")
 		d           = s.dep
-		private     = api.Group("")
 		controllers = map[string]controller{
 			// "/profile":           profile.NewController(d),
 			// "/graph":             graph.NewController(d),
@@ -36,17 +34,19 @@ func (s *Server) RegisterRouter(router *gin.Engine) {
 		}
 	)
 
-	// public routes
-	// if d.Cfg.Environment != enum.EnvironmentProduction {
-	// 	apidocs.NewController(d).Register(router, api)
-	// }
-	// auth.NewController(d).Register(api)
+	router.Route("/api/v1", func(r chi.Router) {
+		// public routes
+		// if d.Cfg.Environment != enum.EnvironmentProduction {
+		// 	apidocs.NewController(d).Register(router, r)
+		// }
+		// auth.NewController(d).Register(r)
 
-	// private routes
-	// private.Use(middleware.Auth(d.UserService.AuthenticateUser))
-	for prefix, c := range controllers {
-		c.Register(private.Group(prefix))
-	}
+		// private routes
+		// r.Use(middleware.Auth(d.UserService.AuthenticateUser))
+		for prefix, c := range controllers {
+			r.Route(prefix, c.Register)
+		}
+	})
 }
 
 func (s *Server) Init() error {
@@ -56,7 +56,7 @@ func (s *Server) Init() error {
 }
 
 func (s *Server) Name() string {
-	return "gin-app"
+	return "chi-app"
 }
 
 func (s *Server) Close() error {
