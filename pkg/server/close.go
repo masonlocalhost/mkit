@@ -32,6 +32,16 @@ func (s *Server) closeInternalServers() {
 			logger.Info(fmt.Sprintf("HTTP server %s is shut down successfully", name))
 		}
 	}
+
+	for _, is := range s.internalConnectServers {
+		name := is.Name()
+		logger.Info(fmt.Sprintf("Graceful shutdown for connect service %s starts", name))
+		if err := is.Close(); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Warn(fmt.Sprintf("Error when graceful shutdown for connect service %s: %s", name, err))
+		} else {
+			logger.Info(fmt.Sprintf("Connect service %s is shut down successfully", name))
+		}
+	}
 }
 
 func (s *Server) Close(ctx context.Context) {
@@ -53,6 +63,14 @@ func (s *Server) Close(ctx context.Context) {
 			logger.Warn("Failed to stop tracing", "error", err)
 		} else {
 			logger.Info("Tracing stopped")
+		}
+	}
+
+	if connectSrv := s.ConnectHTTPServer; connectSrv != nil {
+		if err := connectSrv.Shutdown(ctx); err != nil {
+			logger.Warn("Failed to stop ConnectRPC server", "error", err)
+		} else {
+			logger.Info("ConnectRPC server stopped")
 		}
 	}
 

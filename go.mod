@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	buf.build/go/protovalidate v1.1.3
+	connectrpc.com/connect v1.19.1
 	connectrpc.com/vanguard v0.4.0
 	github.com/avast/retry-go/v4 v4.7.0
 	github.com/envoyproxy/protoc-gen-validate v1.3.0
@@ -45,7 +46,6 @@ require (
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1 // indirect
 	cel.dev/expr v0.25.1 // indirect
-	connectrpc.com/connect v1.19.1 // indirect
 	github.com/ClickHouse/ch-go v0.61.5 // indirect
 	github.com/ClickHouse/clickhouse-go/v2 v2.30.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect

@@ -1,12 +1,16 @@
 package server
 
 import (
+	connectpkg "mkit/pkg/server/connect"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 func (s *Server) Serve() {
@@ -17,6 +21,9 @@ func (s *Server) Serve() {
 	}
 	if cfg.GRPC != nil {
 		s.serveGRPC()
+	}
+	if cfg.Connect != nil {
+		s.serveConnect()
 	}
 }
 
@@ -38,6 +45,43 @@ func (s *Server) init() {
 			os.Exit(1)
 		}
 	}
+
+	for _, is := range s.internalConnectServers {
+		if err := is.Init(); err != nil {
+			logger.Error("Error when init connect service", "name", is.Name(), "error", err)
+			os.Exit(1)
+		}
+	}
+}
+
+func (s *Server) serveConnect() {
+	var (
+		deps   = s.Deps
+		logger = deps.Logger
+		cfg    = deps.AppConfig.Connect
+	)
+
+	if len(s.internalConnectServers) == 0 {
+		logger.Error("Connect servers must be registered to be able to serve (use RegisterInternalConnectServers())")
+		os.Exit(1)
+	}
+
+	addr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
+	handler := connectpkg.WrapMux(deps.ConnectMux, deps.AppConfig)
+
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: h2c.NewHandler(handler, &http2.Server{}),
+	}
+	s.ConnectHTTPServer = srv
+
+	logger.Info("ConnectRPC server running", "addr", addr)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("ConnectRPC server failed to listen", "error", err)
+			os.Exit(1)
+		}
+	}()
 }
 
 func (s *Server) serveGRPC() {

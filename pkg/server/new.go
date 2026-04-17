@@ -1,6 +1,7 @@
 package server
 
 import (
+	"connectrpc.com/connect"
 	"connectrpc.com/vanguard/vanguardgrpc"
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/net/http2"
@@ -27,15 +28,22 @@ type internalHTTPServer interface {
 	RegisterRouter(router chi.Router)
 }
 
+type internalConnectServer interface {
+	internalServer
+	RegisterRoutes(mux *http.ServeMux, opts ...connect.HandlerOption)
+}
+
 type Server struct {
 	GRPCNetListener      net.Listener
 	GRPCTranscodeServer  *http.Server
 	GRPCTranscodeHandler http.Handler
 	HTTPServer           *http.Server
+	ConnectHTTPServer    *http.Server
 
-	Deps                *Dependencies
-	internalGRPCServers []internalGRPCServer
-	internalHTTPServer  internalHTTPServer
+	Deps                   *Dependencies
+	internalGRPCServers    []internalGRPCServer
+	internalHTTPServer     internalHTTPServer
+	internalConnectServers []internalConnectServer
 }
 
 func NewServer(deps ...Dependency) *Server {
@@ -75,4 +83,13 @@ func (s *Server) RegisterInternalGRPCServers(iss ...internalGRPCServer) {
 func (s *Server) RegisterInternalHTTPServer(server internalHTTPServer) {
 	server.RegisterRouter(s.Deps.ChiRouter)
 	s.internalHTTPServer = server
+}
+
+func (s *Server) RegisterInternalConnectServers(iss ...internalConnectServer) {
+	for _, i := range iss {
+		if i != nil {
+			i.RegisterRoutes(s.Deps.ConnectMux, s.Deps.ConnectHandlerOptions...)
+			s.internalConnectServers = append(s.internalConnectServers, i)
+		}
+	}
 }
