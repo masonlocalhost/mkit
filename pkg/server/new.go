@@ -2,6 +2,7 @@ package server
 
 import (
 	"connectrpc.com/connect"
+	"connectrpc.com/grpcreflect"
 	"connectrpc.com/vanguard/vanguardgrpc"
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/net/http2"
@@ -38,7 +39,6 @@ type Server struct {
 	GRPCTranscodeServer  *http.Server
 	GRPCTranscodeHandler http.Handler
 	HTTPServer           *http.Server
-	ConnectHTTPServer    *http.Server
 
 	Deps                   *Dependencies
 	internalGRPCServers    []internalGRPCServer
@@ -92,4 +92,19 @@ func (s *Server) RegisterInternalConnectServers(iss ...internalConnectServer) {
 			s.internalConnectServers = append(s.internalConnectServers, i)
 		}
 	}
+
+	httpCfg := s.Deps.AppConfig.HTTP
+	if httpCfg == nil || httpCfg.Connect == nil || !httpCfg.Connect.ReflectionEnabled {
+		return
+	}
+
+	var names []string
+	for _, i := range s.internalConnectServers {
+		names = append(names, i.Name())
+	}
+	reflector := grpcreflect.NewStaticReflector(names...)
+	v1Path, v1Handler := grpcreflect.NewHandlerV1(reflector, s.Deps.ConnectHandlerOptions...)
+	s.Deps.ConnectMux.Handle(v1Path, v1Handler)
+	v1aPath, v1aHandler := grpcreflect.NewHandlerV1Alpha(reflector, s.Deps.ConnectHandlerOptions...)
+	s.Deps.ConnectMux.Handle(v1aPath, v1aHandler)
 }

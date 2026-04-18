@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	buf.build/go/protovalidate v1.1.3
 	connectrpc.com/connect v1.19.1
+	connectrpc.com/grpcreflect v1.3.0
 	connectrpc.com/vanguard v0.4.0
 	github.com/avast/retry-go/v4 v4.7.0
 	github.com/envoyproxy/protoc-gen-validate v1.3.0

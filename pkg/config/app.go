@@ -13,7 +13,6 @@ type App struct {
 	Redis       *Redis           `mapstructure:"redis"`
 	HTTP        *HTTP            `mapstructure:"http"`
 	GRPC        *GRPC            `mapstructure:"grpc"`
-	Connect     *Connect         `mapstructure:"connect"`
 	Log         *Log             `mapstructure:"log"`
 	Tracing     Tracing          `mapstructure:"tracing"`
 	Swagger     *Swagger         `mapstructure:"swagger"`
@@ -53,13 +52,14 @@ type GRPC struct {
 }
 
 type HTTP struct {
-	Host string `mapstructure:"host" validate:"required,hostname|ip"`
-	Port string `mapstructure:"port" validate:"required,gt=0"`
+	Host    string      `mapstructure:"host" validate:"required,hostname|ip"`
+	Port    string      `mapstructure:"port" validate:"required,gt=0"`
+	Connect *ConnectRPC `mapstructure:"connect"`
 }
 
-type Connect struct {
-	Host string `mapstructure:"host" validate:"required,hostname|ip"`
-	Port string `mapstructure:"port" validate:"required,gt=0"`
+type ConnectRPC struct {
+	MaxConnectionAge  string `mapstructure:"maxConnectionAge"`
+	ReflectionEnabled bool   `mapstructure:"reflectionEnabled"`
 }
 
 type Tracing struct {

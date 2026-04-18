@@ -66,14 +66,6 @@ func (s *Server) Close(ctx context.Context) {
 		}
 	}
 
-	if connectSrv := s.ConnectHTTPServer; connectSrv != nil {
-		if err := connectSrv.Shutdown(ctx); err != nil {
-			logger.Warn("Failed to stop ConnectRPC server", "error", err)
-		} else {
-			logger.Info("ConnectRPC server stopped")
-		}
-	}
-
 	if gRPCServer := d.GRPCServer; gRPCServer != nil {
 		gRPCServer.GracefulStop()
 		logger.Info("Grpc server stopped")

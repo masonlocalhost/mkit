@@ -1,13 +1,13 @@
 package server
 
 import (
-	connectpkg "mkit/pkg/server/connect"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -21,9 +21,6 @@ func (s *Server) Serve() {
 	}
 	if cfg.GRPC != nil {
 		s.serveGRPC()
-	}
-	if cfg.Connect != nil {
-		s.serveConnect()
 	}
 }
 
@@ -52,36 +49,6 @@ func (s *Server) init() {
 			os.Exit(1)
 		}
 	}
-}
-
-func (s *Server) serveConnect() {
-	var (
-		deps   = s.Deps
-		logger = deps.Logger
-		cfg    = deps.AppConfig.Connect
-	)
-
-	if len(s.internalConnectServers) == 0 {
-		logger.Error("Connect servers must be registered to be able to serve (use RegisterInternalConnectServers())")
-		os.Exit(1)
-	}
-
-	addr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
-	handler := connectpkg.WrapMux(deps.ConnectMux, deps.AppConfig)
-
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: h2c.NewHandler(handler, &http2.Server{}),
-	}
-	s.ConnectHTTPServer = srv
-
-	logger.Info("ConnectRPC server running", "addr", addr)
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("ConnectRPC server failed to listen", "error", err)
-			os.Exit(1)
-		}
-	}()
 }
 
 func (s *Server) serveGRPC() {
@@ -141,21 +108,47 @@ func (s *Server) serveHTTP() {
 		cfg    = deps.AppConfig.HTTP
 	)
 
-	if s.internalHTTPServer == nil {
+	hasConnect := len(s.internalConnectServers) > 0
+
+	if s.internalHTTPServer == nil && !hasConnect {
 		logger.Error("HTTP server must be registered to be able to serve (use RegisterInternalHTTPServer())")
 		os.Exit(1)
 	}
 
-	mux := http.NewServeMux()
+	// When ConnectRPC servers are registered, use their mux as the base so
+	// their specific path patterns are matched before chi's catch-all "/".
+	var mux *http.ServeMux
+	if hasConnect {
+		mux = deps.ConnectMux
+	} else {
+		mux = http.NewServeMux()
+	}
+
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("/", deps.ChiRouter)
+	if s.internalHTTPServer != nil {
+		mux.Handle("/", deps.ChiRouter)
+	}
+
+	// h2c enables HTTP/2 cleartext, required for ConnectRPC's gRPC protocol.
+	var handler http.Handler = mux
+	if hasConnect {
+		handler = h2c.NewHandler(mux, &http2.Server{})
+	}
+
+	var idleTimeout time.Duration
+	if hasConnect && cfg.Connect != nil && cfg.Connect.MaxConnectionAge != "" {
+		if d, err := time.ParseDuration(cfg.Connect.MaxConnectionAge); err == nil {
+			idleTimeout = d
+		}
+	}
 
 	httpServer := &http.Server{
-		Handler: mux,
-		Addr:    fmt.Sprintf("%s:%s", cfg.Host, cfg.Port),
+		Handler:     handler,
+		Addr:        fmt.Sprintf("%s:%s", cfg.Host, cfg.Port),
+		IdleTimeout: idleTimeout,
 	}
 	s.HTTPServer = httpServer
 
